@@ -211,7 +211,7 @@ def draw_bezier_connectors(c, cx, cy, pluto_d=2.5, n=32, **kw):
         p3 = (it["rx"] - it["sx"] * it["w"], it["ry"])
         day = it["idx"] + 1
         # Days near 3 o'clock (right) and 9 o'clock (left) get a curl.
-        LOOP_DAYS_SIDE = {7, 8, 9, 10, 23, 24, 25, 26}
+        LOOP_DAYS_SIDE = {8, 9, 24, 25}
         # Decide connector style based on lane geometry / day:
         span_x = abs(p3[0] - p0[0])
         span_y = abs(p3[1] - p0[1])
