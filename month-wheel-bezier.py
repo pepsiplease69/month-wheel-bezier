@@ -108,10 +108,10 @@ def draw_belt_rectangles(c, cx, cy, major_in=4.0, minor_in=3.5,
 
     per_side = n // 2                # levels stacked from top to bottom
     c.saveState()
-    # Match the Kuiper-belt ellipse style (medium gray, thin, dotted).
+    # Match the Kuiper-belt ellipse style (medium gray, thin), but solid.
     c.setStrokeColor(Color(0.45, 0.45, 0.45))
     c.setLineWidth(0.6)
-    c.setDash(1, 3)                  # dotted; comment out this line for solid
+    # c.setDash(1, 3)               # dotted; uncomment this line for dotted
     for j in range(per_side):
         # evenly spaced vertical centers from top (+B) to bottom (-B)
         Y = B - j * (2.0 * B / (per_side - 1))
