@@ -77,17 +77,20 @@ def draw_subsector_lines(c, cx, cy, inner_d=1.0, outer_d=2.5, n_divisions=32):
 def draw_belt_rectangles(c, cx, cy, major_in=4.0, minor_in=3.5,
                          rect_w_in=1.25, rect_h_in=0.25,
                          gap_in=0.25, n=32):
-    """Place n axis-aligned rectangles around the Kuiper-belt ellipse.
+    """Place n axis-aligned rectangles in two vertical columns around the belt.
 
-    - Each rectangle is horizontal (aligned to the page, never rotated).
-    - One rectangle is centered in each subsector wedge.
-    - The side/corner nearest the sun clears the belt by `gap_in` (measured
-      radially), so every box has the same breathing room from the ellipse.
+    Layout rules (to eliminate the top/bottom overlaps):
+    - Every rectangle stays horizontal (aligned to the page, never rotated).
+    - Boxes are stacked at evenly-spaced vertical levels, so vertically
+      adjacent boxes are close but never overlap.
+    - Exactly 2 boxes sit at the very top and 2 at the very bottom; the rest
+      fan outward down each side, hugging an ellipse that clears the belt.
+    - The edge nearest the sun keeps `gap_in` of breathing room from the belt.
 
     major_in / minor_in: belt ellipse axis *diameters* in inches
     rect_w_in / rect_h_in: rectangle size in inches (W x H)
-    gap_in: breathing room between the belt and the inner edge of each box
-    n: number of rectangles (one per subsector)
+    gap_in: breathing room between the belt and the near edge of each box
+    n: total number of rectangles (split evenly into two side columns)
     """
     a = (major_in / 2.0) * inch      # belt horizontal semi-axis
     b = (minor_in / 2.0) * inch      # belt vertical semi-axis
@@ -95,23 +98,26 @@ def draw_belt_rectangles(c, cx, cy, major_in=4.0, minor_in=3.5,
     h = (rect_h_in / 2.0) * inch     # rectangle half-height
     gap = gap_in * inch
 
-    step = 2.0 * math.pi / n
+    # Placement ellipse for box CENTERS: sized so the near edge clears the belt
+    # by `gap` both on the sides (horizontal) and at the top/bottom (vertical).
+    A = a + gap + w                  # horizontal semi-axis for centers
+    B = b + gap + h                  # vertical semi-axis for centers
+
+    # Minimum horizontal offset so the 2 top / 2 bottom boxes never overlap.
+    min_off = w + 0.075 * inch
+
+    per_side = n // 2                # levels stacked from top to bottom
     c.saveState()
     c.setLineWidth(0.75)
-    for i in range(n):
-        theta = (i + 0.5) * step             # center of each subsector wedge
-        dx, dy = math.sin(theta), math.cos(theta)
-
-        # distance from center to the belt along this radial direction
-        t_belt = 1.0 / math.sqrt((dx / a) ** 2 + (dy / b) ** 2)
-
-        # push out so the box's near edge clears the belt by `gap`;
-        # |dx|*w + |dy|*h is the rectangle's half-extent along the radial axis
-        d = t_belt + gap + abs(dx) * w + abs(dy) * h
-
-        rx = cx + d * dx
-        ry = cy + d * dy
-        c.rect(rx - w, ry - h, 2 * w, 2 * h, stroke=1, fill=0)
+    for j in range(per_side):
+        # evenly spaced vertical centers from top (+B) to bottom (-B)
+        Y = B - j * (2.0 * B / (per_side - 1))
+        ratio = max(0.0, 1.0 - (Y / B) ** 2)
+        X = max(A * math.sqrt(ratio), min_off)   # hug ellipse; clamp at ends
+        for sx in (1, -1):
+            rx = cx + sx * X
+            ry = cy + Y
+            c.rect(rx - w, ry - h, 2 * w, 2 * h, stroke=1, fill=0)
     c.restoreState()
 
 
