@@ -13,22 +13,25 @@ Connector styles:
   * partial radial  -> near-vertical days swing to a radial landing
   * pigtail loops   -> selected 'between' days curl at the landing (LOOP_CURLS)
 
-Paper / trimming (--paper):
-  * a5          -> page IS A5, edge-to-edge (no trim marks)
-  * half-letter -> page IS half US Letter (8.5 x 5.5 landscape), edge-to-edge.
-                   A standalone base size for half-letter planners/binders;
-                   NOT a trim target (A5 is 0.33in taller than half-letter).
-  * letter      -> page is US Letter (landscape), wheel centered, with an A5
-                   TRIM rectangle + corner crop marks. Print at 100% (actual
-                   size, no "fit to page") then cut along the box to get A5.
-  * letter-2up  -> TWO wheels on a US Letter PORTRAIT sheet (8.5 x 11), split
-                   by a center cut line. TOP wheel = 'between', BOTTOM wheel =
-                   'on' (see TWO_UP_LANDINGS). Cut in half for two half-letter
-                   pages, one of each landing style.
+Paper (--paper): every mode prints on a US Letter sheet, so you only need
+letter stock and a trimmer/guillotine:
+  * a5-in-letter          -> US Letter LANDSCAPE with an A5 (8.27x5.83) TRIM
+                             box + corner crop marks. Print at 100% (actual
+                             size, no "fit to page") then cut to A5.
+  * half-letter-in-letter -> US Letter LANDSCAPE with a HALF-LETTER (8.5x5.5)
+                             TRIM box + corner crop marks. Cut to half-letter.
+  * half-letter-in-half-letter -> HALF-LETTER (8.5x5.5) LANDSCAPE sheet,
+                             edge-to-edge. Print directly on half-letter stock;
+                             no trim box or crop marks needed.
+  * letter-2up            -> TWO wheels on a US Letter PORTRAIT sheet (8.5x11),
+                             split by a center cut line. Landings set by
+                             --two-up (default: between,on). Cut in half for
+                             two half-letter pages.
 
 Usage:
-  python month-wheel-bezier_33.py --landing on --paper letter
-  python month-wheel-bezier_33.py --paper letter-2up
+  python month-wheel-bezier_35.py --landing on --paper a5-in-letter
+  python month-wheel-bezier_35.py --landing between --paper half-letter-in-letter
+  python month-wheel-bezier_35.py --paper letter-2up --two-up between,on
 """
 
 import argparse
@@ -42,12 +45,11 @@ from reportlab.lib.colors import Color
 # Half US Letter ("statement" / Junior size) = 5.5 x 8.5 in. This is a common
 # US planner/binder size that is loosely (but not exactly) "A5". Reportlab has
 # no built-in constant, so define it in portrait; landscape() flips it to
-# 8.5 x 5.5. NOTE: it is 0.33 in SHORTER than A5, so A5 does not fit inside it
-# -> it is a standalone edge-to-edge base size, never a trim target.
+# 8.5 x 5.5.
 HALF_LETTER = (5.5 * inch, 8.5 * inch)
 
-# letter-2up wheel landings, TOP first then BOTTOM. Change these to mix/match
-# the two stacked wheels (e.g. ("on", "on") for two identical wheels).
+# Default letter-2up wheel landings, TOP first then BOTTOM. Overridable at the
+# command line with --two-up (e.g. "on,on", "between,between", "on,between").
 TWO_UP_LANDINGS = ("between", "on")
 
 
@@ -65,12 +67,12 @@ def draw_dotted_ellipse(c, cx, cy, major_in=4.0, minor_in=3.5):
 
 def draw_trim_border(c, cx, cy, trim_w, trim_h, crop_marks=True,
                      mark_len=0.25 * inch, mark_gap=0.06 * inch):
-    """Draw an A5 trim rectangle (+ corner crop marks) centered at (cx, cy).
+    """Draw a TRIM rectangle (+ corner crop marks) centered at (cx, cy).
 
-    The rectangle is exactly the A5 page size, so after printing at 100%
-    on the larger sheet you can cut along it to recover an A5 page. The
-    little corner ticks sit OUTSIDE the box (they get trimmed away) so they
-    don't mark the finished page.
+    The rectangle is exactly the finished page size (A5 or half-letter), so
+    after printing at 100% on the larger letter sheet you can cut along it to
+    recover that page. The little corner ticks sit OUTSIDE the box (they get
+    trimmed away) so they don't mark the finished page.
     """
     x0, y0 = cx - trim_w / 2.0, cy - trim_h / 2.0
     x1, y1 = cx + trim_w / 2.0, cy + trim_h / 2.0
@@ -195,52 +197,6 @@ def draw_belt_rectangles(c, cx, cy, **kw):
     c.restoreState()
 
 
-def _catmull_rom(c, pts):
-    """Draw a smooth path through pts using Catmull-Rom -> Bezier segments."""
-    p = c.beginPath()
-    p.moveTo(*pts[0])
-    n = len(pts)
-    for i in range(n - 1):
-        p0 = pts[max(i - 1, 0)]
-        p1 = pts[i]
-        p2 = pts[i + 1]
-        p3 = pts[min(i + 2, n - 1)]
-        c1x = p1[0] + (p2[0] - p0[0]) / 6.0
-        c1y = p1[1] + (p2[1] - p0[1]) / 6.0
-        c2x = p2[0] - (p3[0] - p1[0]) / 6.0
-        c2y = p2[1] - (p3[1] - p1[1]) / 6.0
-        p.curveTo(c1x, c1y, c2x, c2y, p2[0], p2[1])
-    c.drawPath(p, stroke=1, fill=0)
-
-
-def _tendril_points(p0, p3, waves=1.6, amp=0.28 * inch, samples=90,
-                    phase=0.0, taper=True, loop_at=None, loop_r=0.14 * inch):
-    """Sample points for a meandering tendril; optional loop/curl at loop_at."""
-    p0x, p0y = p0
-    p3x, p3y = p3
-    dx, dy = p3x - p0x, p3y - p0y
-    length = math.hypot(dx, dy) or 1.0
-    ux, uy = dx / length, dy / length
-    nx, ny = -uy, ux
-
-    pts = []
-    for s in range(samples + 1):
-        t = s / samples
-        bx = p0x + dx * t
-        by = p0y + dy * t
-        env = math.sin(math.pi * t) if taper else 1.0
-        off = amp * env * math.sin(2.0 * math.pi * waves * t + phase)
-        px = bx + nx * off
-        py = by + ny * off
-        if loop_at is not None and abs(t - loop_at) < (0.5 / samples):
-            for a in range(0, 361, 20):
-                ang = math.radians(a)
-                pts.append((px + loop_r * math.cos(ang) - loop_r,
-                            py + loop_r * math.sin(ang)))
-        pts.append((px, py))
-    return pts
-
-
 def _swagger_controls(p0, p3, center=None, k_frac=1.25, k_min=14.0,
                       radial_exp=3.0, c2_boost=1.0, curl_deg=0.0):
     """Control points for a swagger from p3 (box) -> p0 (orbit).
@@ -324,17 +280,6 @@ def _swagger_connector(c, p0, p3, center=None, k_frac=1.25, k_min=14.0,
     c1, c2 = _swagger_controls(p0, p3, center, k_frac, k_min, radial_exp,
                                c2_boost=c2_boost, curl_deg=curl_deg)
     c.bezier(p3[0], p3[1], c1[0], c1[1], c2[0], c2[1], p0[0], p0[1])
-
-
-def _loop_connector(c, p0, p3, loop_r=0.13 * inch):
-    """Vertical drop (12 & 6 o'clock) with a single little loop en route.
-
-    Retired from the main dispatch (swagger + partial-radial handles the
-    vertical days now) but kept for reference / experimentation.
-    """
-    pts = _tendril_points(p3, p0, waves=0.0, amp=0.0, phase=0.0,
-                          taper=False, loop_at=0.5, loop_r=loop_r)
-    _catmull_rom(c, pts)
 
 
 def _landing_direction(p0, p3, center, radial_exp):
@@ -496,30 +441,31 @@ def draw_wheel(c, cx, cy, landing="on", radial_exp=5.0):
 
 
 def create_a5_concentric_circles(filename="blank_a5_landscape.pdf",
-                                 landing="on", paper="letter",
-                                 radial_exp=5.0):
-    """Landscape A5 month-wheel.
+                                 landing="on", paper="a5-in-letter",
+                                 radial_exp=5.0, two_up=TWO_UP_LANDINGS):
+    """Month-wheel on a US Letter sheet.
 
     paper:
-      "a5"          -> page IS A5 (edge-to-edge, no trim marks)
-      "half-letter" -> page IS half US Letter, 8.5 x 5.5 landscape
-                       (edge-to-edge, no trim marks). Standalone base size.
-      "letter"      -> page is US Letter landscape; A5 wheel is centered with a
-                       trim rectangle + crop marks so you can cut it to A5.
-      "letter-2up"  -> two wheels on a US Letter PORTRAIT sheet (8.5 x 11),
-                       TOP = 'between', BOTTOM = 'on' (TWO_UP_LANDINGS), with a
-                       center cut line. The --landing flag is ignored here.
-    """
-    a5_size = landscape(A5)              # (210mm x 148mm) -> the trim box
-    trim_w, trim_h = a5_size
+      "a5-in-letter"          -> letter LANDSCAPE + A5 (8.27x5.83) trim box
+                                 + crop marks. Cut to A5.
+      "half-letter-in-letter" -> letter LANDSCAPE + half-letter (8.5x5.5) trim
+                                 box + crop marks. Cut to half-letter.
+      "half-letter-in-half-letter" -> half-letter (8.5x5.5) LANDSCAPE sheet,
+                                 edge-to-edge (no trim box). Print on
+                                 half-letter stock directly.
+      "letter-2up"            -> two wheels on a letter PORTRAIT sheet (8.5x11)
+                                 with a center cut line. two_up = (top, bottom)
+                                 landings. The --landing flag is ignored here.
 
+    two_up: a (top_landing, bottom_landing) tuple used only for letter-2up.
+    """
     # --- 2-up: two wheels on a portrait letter sheet, split by a cut line ---
     if paper == "letter-2up":
         page_size = letter              # PORTRAIT 8.5 x 11 in
         width, height = page_size
         c = canvas.Canvas(filename, pagesize=page_size)
 
-        top_landing, bottom_landing = TWO_UP_LANDINGS
+        top_landing, bottom_landing = two_up
         # Each half-letter region is 8.5 x 5.5; center a wheel in each.
         draw_wheel(c, width / 2.0, 3.0 * height / 4.0, top_landing, radial_exp)
         draw_wheel(c, width / 2.0, 1.0 * height / 4.0, bottom_landing,
@@ -534,28 +480,56 @@ def create_a5_concentric_circles(filename="blank_a5_landscape.pdf",
               f"(paper={paper}, top={top_landing}, bottom={bottom_landing})")
         return
 
-    # --- single-wheel sheets ---
-    if paper == "letter":
-        page_size = landscape(letter)        # 11 x 8.5 in sheet
-    elif paper == "half-letter":
+    # --- half-letter stock, edge-to-edge (page IS the finished size) ---
+    if paper == "half-letter-in-half-letter":
         page_size = landscape(HALF_LETTER)   # 8.5 x 5.5 in sheet
-    else:
-        page_size = a5_size
+        width, height = page_size
+        cx, cy = width / 2.0, height / 2.0
+        c = canvas.Canvas(filename, pagesize=page_size)
 
+        draw_wheel(c, cx, cy, landing, radial_exp)
+        # No trim box: the sheet already equals the finished page.
+
+        c.showPage()
+        c.save()
+        print(f"Created month-wheel PDF: {filename}  "
+              f"(landing={landing}, paper={paper})")
+        return
+
+    # --- single wheel on a letter LANDSCAPE sheet, with a trim box ---
+    page_size = landscape(letter)       # 11 x 8.5 in sheet
     width, height = page_size
     cx, cy = width / 2.0, height / 2.0
     c = canvas.Canvas(filename, pagesize=page_size)
 
     draw_wheel(c, cx, cy, landing, radial_exp)
 
-    # Trim rectangle + crop marks only make sense on the oversized letter sheet.
-    if paper == "letter":
-        draw_trim_border(c, cx, cy, trim_w, trim_h)
+    if paper == "half-letter-in-letter":
+        trim_w, trim_h = landscape(HALF_LETTER)   # 8.5 x 5.5 trim box
+    else:  # "a5-in-letter"
+        trim_w, trim_h = landscape(A5)            # 8.27 x 5.83 trim box
+    draw_trim_border(c, cx, cy, trim_w, trim_h)
 
     c.showPage()
     c.save()
     print(f"Created month-wheel PDF: {filename}  "
           f"(landing={landing}, paper={paper})")
+
+
+def _parse_two_up(value):
+    """Parse a --two-up 'top,bottom' string into a (top, bottom) tuple.
+
+    Accepts 'on' / 'between' for each slot. A single value (e.g. 'on') is
+    applied to BOTH wheels. Raises argparse error on anything else.
+    """
+    parts = [p.strip().lower() for p in value.split(",")]
+    if len(parts) == 1:
+        parts = parts * 2
+    if len(parts) != 2 or any(p not in ("on", "between") for p in parts):
+        raise argparse.ArgumentTypeError(
+            "must be 'top,bottom' using 'on'/'between' "
+            "(e.g. 'between,on', 'on,on', 'between'); got: %r" % value)
+    return tuple(parts)
 
 
 def main():
@@ -565,16 +539,27 @@ def main():
         "--landing", choices=["on", "between"], default="on",
         help="Where connectors meet the Pluto orbit: 'on' the dates "
              "(sector midpoints) or 'between' dates (sector borderlines). "
-             "Ignored for --paper letter-2up (uses TWO_UP_LANDINGS). "
+             "Ignored for --paper letter-2up (use --two-up instead). "
              "Default: on")
     parser.add_argument(
-        "--paper", choices=["a5", "half-letter", "letter", "letter-2up"],
-        default="letter",
-        help="Sheet size. 'a5' = edge-to-edge A5. 'half-letter' = edge-to-edge "
-             "half US Letter (8.5x5.5 landscape). 'letter' = US Letter "
-             "landscape with an A5 trim box + crop marks. 'letter-2up' = two "
-             "wheels on a portrait letter sheet (top=between, bottom=on) with "
-             "a center cut line. Default: letter")
+        "--paper",
+        choices=["a5-in-letter", "half-letter-in-letter",
+                 "half-letter-in-half-letter", "letter-2up"],
+        default="a5-in-letter",
+        help="Output layout. 'a5-in-letter' = letter landscape + A5 trim box "
+             "+ crop marks. 'half-letter-in-letter' = letter landscape + "
+             "half-letter trim box + crop marks. 'half-letter-in-half-letter' "
+             "= half-letter landscape sheet, edge-to-edge (print on half-letter "
+             "stock, no trimming). 'letter-2up' = two wheels on a portrait "
+             "letter sheet with a center cut line (see --two-up). "
+             "Default: a5-in-letter")
+    parser.add_argument(
+        "--two-up", type=_parse_two_up, default=TWO_UP_LANDINGS,
+        dest="two_up", metavar="TOP,BOTTOM",
+        help="For --paper letter-2up: the landing of each wheel as "
+             "'top,bottom' using 'on'/'between'. A single value applies to "
+             "both (e.g. 'on' -> both on). Examples: 'between,on' (default), "
+             "'on,on', 'between,between', 'on,between'.")
     parser.add_argument(
         "--radial-sharpness", type=float, default=5.0, dest="radial_exp",
         help="Sharpness of the partial radial landing (blend weight is "
@@ -588,7 +573,8 @@ def main():
 
     out = args.output or f"sleep_wheel_{args.landing}_{args.paper}.pdf"
     create_a5_concentric_circles(filename=out, landing=args.landing,
-                                 paper=args.paper, radial_exp=args.radial_exp)
+                                 paper=args.paper, radial_exp=args.radial_exp,
+                                 two_up=args.two_up)
 
 
 if __name__ == "__main__":
