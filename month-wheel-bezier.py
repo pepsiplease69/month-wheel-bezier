@@ -124,6 +124,32 @@ def draw_belt_rectangles(c, cx, cy, major_in=4.0, minor_in=3.5,
     c.restoreState()
 
 
+def draw_day_numbers(c, cx, cy, neptune_d=2.0, pluto_d=2.5, n=32,
+                     font_name="Helvetica", font_size=9):
+    """Print numbers 1..n, one per subsector, in the Neptune-Pluto band.
+
+    - Numbering starts in the first subsector clockwise from 12 o'clock.
+    - Each number is centered in its subsector wedge.
+    - Numbers are oriented with their BOTTOM facing the sun (center), so the
+      wheel reads correctly as you rotate the page.
+    - Placed radially between the Neptune (inner) and Pluto (outer) orbits.
+    """
+    r_neptune = (neptune_d / 2.0) * inch
+    r_pluto = (pluto_d / 2.0) * inch
+    r_text = (r_neptune + r_pluto) / 2.0     # midpoint of the band
+
+    step_deg = 360.0 / n                       # 11.25 deg for n=32
+    for i in range(n):
+        theta_deg = (i + 0.5) * step_deg       # center of the subsector
+        c.saveState()
+        c.translate(cx, cy)
+        c.rotate(-theta_deg)                   # +y now points radially outward
+        c.setFont(font_name, font_size)
+        # vertical centering: shift baseline down by ~0.35 * font size
+        c.drawCentredString(0, r_text - 0.35 * font_size, str(i + 1))
+        c.restoreState()
+
+
 def create_a5_concentric_circles(filename: str = "blank_a5_landscape.pdf") -> None:
     """Create a single-page landscape A5 PDF (210 x 148 mm) with 4
     concentric circles centered on the page.
@@ -151,6 +177,9 @@ def create_a5_concentric_circles(filename: str = "blank_a5_landscape.pdf") -> No
     # --- 32 horizontal rectangles just outside the Kuiper belt ---
     draw_belt_rectangles(c, cx, cy, major_in=4.0, minor_in=3.5,
                          rect_w_in=1.25, rect_h_in=0.25, gap_in=0.25, n=32)
+
+    # --- Day numbers 1..32 in the Neptune-Pluto band, bottoms toward the sun ---
+    draw_day_numbers(c, cx, cy, neptune_d=2.0, pluto_d=2.5, n=32)
 
     c.showPage()
     c.save()
