@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """Landscape A5 month-wheel: concentric orbits, Kuiper belt, subsectors,
-day numbers, belt rectangles, and horizontal S-curve Bezier connectors.
+day numbers, belt rectangles, and hand-drawn connectors.
 
-The four diagonal "corner" day-groups get a frolicky double-inflection
-connector (smooth, hand-drawn feel, no sharp corners):
-    upper-right  2-5,  lower-right 12-15,
-    lower-left  17-20, upper-left  27-30.
+Connector styles:
+  - side lanes         -> horizontal S-swagger (k_frac=1.25)
+  - 12 & 6 o'clock     -> vertical drop with a little loop
+  - selected side days -> swagger with a little curl (LOOP_DAYS_SIDE)
+  - days 8 & 9         -> SWAPPED targets so they cross into a gentle S-curve
 """
 
 import math
@@ -15,9 +16,12 @@ from reportlab.lib.pagesizes import A5, landscape
 from reportlab.lib.units import inch
 from reportlab.lib.colors import Color
 
-# Day numbers (1-based) that get the extra-wiggly connector.
-FROLICKY_DAYS = set(range(2, 6)) | set(range(12, 16)) \
-    | set(range(17, 21)) | set(range(27, 31))
+# Side-lane days that get a little curl.
+LOOP_DAYS_SIDE = {24, 25}
+
+# Cross a pair of adjacent boxes so their connectors form a gentle S.
+# idx-based (day = idx + 1): day 8 <-> day 9.
+ORBIT_SWAP = {7: 8, 8: 7}
 
 
 def draw_dotted_ellipse(c, cx, cy, major_in=4.0, minor_in=3.5):
@@ -105,26 +109,23 @@ def _catmull_rom(c, pts):
 
 def _tendril_points(p0, p3, waves=1.6, amp=0.28 * inch, samples=90,
                     phase=0.0, taper=True, loop_at=None, loop_r=0.14 * inch):
-    """Sample points for a long, loose, gently-meandering tendril (pencil-vine
-    look). Low-frequency wander + optional little loop/curl along the way."""
+    """Sample points for a meandering tendril; optional loop/curl at loop_at."""
     p0x, p0y = p0
     p3x, p3y = p3
     dx, dy = p3x - p0x, p3y - p0y
     length = math.hypot(dx, dy) or 1.0
-    ux, uy = dx / length, dy / length          # along-path unit vector
-    nx, ny = -uy, ux                            # perpendicular unit vector
+    ux, uy = dx / length, dy / length
+    nx, ny = -uy, ux
 
     pts = []
     for s in range(samples + 1):
         t = s / samples
         bx = p0x + dx * t
         by = p0y + dy * t
-        env = math.sin(math.pi * t) if taper else 1.0     # taper the ends
+        env = math.sin(math.pi * t) if taper else 1.0
         off = amp * env * math.sin(2.0 * math.pi * waves * t + phase)
         px = bx + nx * off
         py = by + ny * off
-
-        # optional loop: insert a small circle where t crosses loop_at
         if loop_at is not None and abs(t - loop_at) < (0.5 / samples):
             for a in range(0, 361, 20):
                 ang = math.radians(a)
@@ -138,17 +139,13 @@ def _swagger_controls(p0, p3, k_frac=1.25, k_min=14.0):
     """Return the two horizontal control points for a swagger from p3 -> p0."""
     dirx = 1.0 if (p0[0] - p3[0]) >= 0 else -1.0
     k = max(k_frac * abs(p0[0] - p3[0]), k_min)
-    c1 = (p3[0] + dirx * k, p3[1])     # leave the box horizontally
-    c2 = (p0[0] - dirx * k, p0[1])     # arrive on the orbit horizontally
+    c1 = (p3[0] + dirx * k, p3[1])
+    c2 = (p0[0] - dirx * k, p0[1])
     return c1, c2
 
 
 def _swagger_connector(c, p0, p3, k_frac=1.25, k_min=14.0):
-    """Horizontal S-swagger from the rectangle (p3) into the Pluto orbit (p0).
-
-    Both ends use HORIZONTAL tangents, so the curve leaves the box sideways,
-    gently swaggers, and settles horizontally onto the orbit -- no diagonal.
-    """
+    """Horizontal S-swagger from the rectangle (p3) into the Pluto orbit (p0)."""
     c1, c2 = _swagger_controls(p0, p3, k_frac, k_min)
     c.bezier(p3[0], p3[1], c1[0], c1[1], c2[0], c2[1], p0[0], p0[1])
 
@@ -165,15 +162,13 @@ def _bezier_point(p_start, c1, c2, p_end, t):
 
 def _swagger_loop_connector(c, p0, p3, k_frac=1.25, k_min=14.0,
                             loop_r=0.11 * inch, loop_at=0.5, samples=72):
-    """Same horizontal swagger, but with a little loop tied along the way.
-    Used for the mostly-horizontal lanes near 3 o'clock and 9 o'clock."""
+    """Horizontal swagger with a little loop tied along the way."""
     c1, c2 = _swagger_controls(p0, p3, k_frac, k_min)
     pts = []
     for s in range(samples + 1):
         t = s / samples
-        px, py = _bezier_point(p3, c1, c2, p0, t)   # p3 (box) -> p0 (orbit)
+        px, py = _bezier_point(p3, c1, c2, p0, t)
         if abs(t - loop_at) < (0.5 / samples):
-            # small circle, offset toward the sun so it reads as a curl
             for a in range(0, 361, 18):
                 ang = math.radians(a)
                 pts.append((px + loop_r * math.cos(ang) - loop_r,
@@ -183,19 +178,14 @@ def _swagger_loop_connector(c, p0, p3, k_frac=1.25, k_min=14.0,
 
 
 def _loop_connector(c, p0, p3, loop_r=0.13 * inch):
-    """For vertically-aligned lanes (12 & 6 o'clock): the box sits straight
-    above/below its orbit target, so a horizontal swagger is impossible.
-    Instead drop mostly vertically and tie a single little loop en route.
-    """
+    """Vertical drop (12 & 6 o'clock) with a single little loop en route."""
     pts = _tendril_points(p3, p0, waves=0.0, amp=0.0, phase=0.0,
                           taper=False, loop_at=0.5, loop_r=loop_r)
     _catmull_rom(c, pts)
 
 
 def draw_bezier_connectors(c, cx, cy, pluto_d=2.5, n=32, **kw):
-    """S-curve connectors from each subsector's Pluto-orbit edge to its box.
-    Corner day-groups (FROLICKY_DAYS) get the wander-y double-inflection path.
-    """
+    """Connectors from each subsector's Pluto-orbit edge to its box."""
     r_pluto = (pluto_d / 2.0) * inch
     items = belt_rectangle_layout(cx, cy, n=n, **kw)
     step = 2.0 * math.pi / n
@@ -204,22 +194,21 @@ def draw_bezier_connectors(c, cx, cy, pluto_d=2.5, n=32, **kw):
     c.setStrokeColor(Color(0.35, 0.35, 0.35))   # pencil gray
     c.setLineWidth(0.8)
     for it in items:
-        theta = (it["idx"] + 0.5) * step
-        # start on the Pluto orbit for this subsector
+        # Orbit target may be swapped with a neighbor to cross into an S-curve.
+        orbit_idx = ORBIT_SWAP.get(it["idx"], it["idx"])
+        theta = (orbit_idx + 0.5) * step
         p0 = (cx + r_pluto * math.sin(theta), cy + r_pluto * math.cos(theta))
-        # end at the rectangle's inner edge
         p3 = (it["rx"] - it["sx"] * it["w"], it["ry"])
         day = it["idx"] + 1
-        # Days near 3 o'clock (right) and 9 o'clock (left) get a curl.
-        LOOP_DAYS_SIDE = {8, 9, 24, 25}
-        # Decide connector style based on lane geometry / day:
+
         span_x = abs(p3[0] - p0[0])
         span_y = abs(p3[1] - p0[1])
-        if span_x < 0.55 * span_y:
-            # box is ~straight above/below its orbit point -> vertical loop
+        if it["idx"] in ORBIT_SWAP:
+            # crossed pair -> plain swagger renders a gentle S
+            _swagger_connector(c, p0, p3)
+        elif span_x < 0.55 * span_y:
             _loop_connector(c, p0, p3)
         elif day in LOOP_DAYS_SIDE:
-            # mostly-horizontal lane -> swagger with a little curl
             _swagger_loop_connector(c, p0, p3)
         else:
             _swagger_connector(c, p0, p3)
@@ -250,26 +239,16 @@ def create_a5_concentric_circles(filename: str = "blank_a5_landscape.pdf") -> No
     cx, cy = width / 2.0, height / 2.0
     c = canvas.Canvas(filename, pagesize=page_size)
 
-    # --- Concentric circles (solid): Pluto, Neptune, Uranus, Saturn ---
     for d in [2.5, 2.0, 1.5, 1.0]:
         c.circle(cx, cy, (d / 2.0) * inch, stroke=1, fill=0)
 
-    # --- Kuiper belt (dotted ellipse) ---
     draw_dotted_ellipse(c, cx, cy, major_in=4.0, minor_in=3.5)
-
-    # --- 32 subsector spokes (Saturn -> Pluto) ---
     draw_subsector_lines(c, cx, cy, inner_d=1.0, outer_d=2.5, n_divisions=32)
-
-    # --- Connectors (drawn under the rectangles) ---
     draw_bezier_connectors(c, cx, cy, pluto_d=2.5, n=32,
                            major_in=4.0, minor_in=3.5,
                            rect_w_in=1.25, rect_h_in=0.25, gap_in=0.25)
-
-    # --- 32 horizontal rectangles just outside the Kuiper belt ---
     draw_belt_rectangles(c, cx, cy, major_in=4.0, minor_in=3.5,
                          rect_w_in=1.25, rect_h_in=0.25, gap_in=0.25, n=32)
-
-    # --- Day numbers 1..32 (bottoms toward the sun) ---
     draw_day_numbers(c, cx, cy, neptune_d=2.0, pluto_d=2.5, n=32)
 
     c.showPage()
