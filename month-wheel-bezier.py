@@ -25,8 +25,11 @@ Paper (--paper):
                              half-letter pages. Landings via --two-up.
   * a5-fold-in-letter     -> TWO wheels on a US Letter PORTRAIT sheet, split by
                              a center FOLD line (not a cut). Both wheels are
-                             upright (no rotation). Side crop marks trim the
-                             width down to A5 (8.27). The result is an "A5-ish"
+                             upright (no rotation) and pushed FLUSH LEFT, so the
+                             whole excess width becomes a SINGLE right-hand trim
+                             margin (~0.23in, clear of the printer dead zone) ->
+                             just ONE cut down the right guide to reach A5 width
+                             (8.27). The result is an "A5-ish"
                              double-sided folded card (folded height 5.5in is a
                              touch under A5's 5.83in) for a traveler's-notebook-
                              style insert: fold, trim sides, tuck into an A5
@@ -520,21 +523,28 @@ def create_a5_concentric_circles(filename="blank_a5_landscape.pdf",
         top_landing, bottom_landing = two_up
         is_fold = (paper == "a5-fold-in-letter")
 
-        # Both wheels upright (no rotation), for the cut and fold layouts alike.
-        draw_wheel(c, width / 2.0, 3.0 * height / 4.0, top_landing, radial_exp)
-        draw_wheel(c, width / 2.0, 1.0 * height / 4.0, bottom_landing,
-                   radial_exp)
-
         if is_fold:
-            # Center FOLD line (not a cut) + side crop marks to trim to A5 width.
-            draw_fold_line(c, 0.0, width, height / 2.0)
-            a5_w = landscape(A5)[0]               # 8.27 in target width
-            trim_in = (width - a5_w) / 2.0        # ~0.115 in each side
-            draw_side_crop_marks(c, trim_in, 0.0, height)
-            draw_side_crop_marks(c, width - trim_in, 0.0, height)
-            note = f"top={top_landing}, bottom={bottom_landing}, FOLD"
+            # FLUSH-LEFT layout: the finished A5-width page hugs the paper's
+            # LEFT edge, so ALL the excess width piles into a SINGLE trim margin
+            # on the RIGHT. One cut instead of two, and it lands ~0.23in from the
+            # edge (double the old ~0.115in split), clearing most printers' dead
+            # zone. Print at 100% and slice once down the right guide.
+            a5_w = landscape(A5)[0]               # 8.27 in finished width
+            cx_wheel = a5_w / 2.0                 # center wheels in that width
+            draw_wheel(c, cx_wheel, 3.0 * height / 4.0, top_landing, radial_exp)
+            draw_wheel(c, cx_wheel, 1.0 * height / 4.0, bottom_landing,
+                       radial_exp)
+            # FOLD line spans only the finished width; single RIGHT cut guide.
+            draw_fold_line(c, 0.0, a5_w, height / 2.0)
+            draw_side_crop_marks(c, a5_w, 0.0, height)
+            note = (f"top={top_landing}, bottom={bottom_landing}, "
+                    f"FOLD, flush-left (single right cut)")
         else:
-            # Center CUT line -> two separate half-letter pages.
+            # Both wheels centered; center CUT line -> two half-letter pages.
+            draw_wheel(c, width / 2.0, 3.0 * height / 4.0, top_landing,
+                       radial_exp)
+            draw_wheel(c, width / 2.0, 1.0 * height / 4.0, bottom_landing,
+                       radial_exp)
             draw_cut_line(c, 0.0, width, height / 2.0)
             note = f"top={top_landing}, bottom={bottom_landing}, CUT"
 
