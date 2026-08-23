@@ -60,6 +60,11 @@ def belt_rectangle_layout(cx, cy, major_in=4.0, minor_in=3.5,
     B = b + gap + h
     min_off = w + 0.075 * inch
 
+    # Per-day vertical nudge (idx-based) to break top/bottom symmetry so the
+    # 1<->32 and 16<->17 crossings have room to form a real S.
+    #   day 1  (idx 0)  -> up 0.25"      day 17 (idx 16) -> down 0.25"
+    Y_OFFSET = {0: 0.25 * inch, 16: -0.25 * inch}
+
     per_side = n // 2
     items = []
     for j in range(per_side):
@@ -68,8 +73,9 @@ def belt_rectangle_layout(cx, cy, major_in=4.0, minor_in=3.5,
         X = max(A * math.sqrt(ratio), min_off)
         for sx in (1, -1):
             idx = j if sx == 1 else (n - 1 - j)
+            ry = cy + Y + Y_OFFSET.get(idx, 0.0)
             items.append({"idx": idx, "sx": sx,
-                          "rx": cx + sx * X, "ry": cy + Y, "w": w, "h": h})
+                          "rx": cx + sx * X, "ry": ry, "w": w, "h": h})
     return items
 
 
