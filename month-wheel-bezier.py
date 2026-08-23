@@ -135,15 +135,15 @@ def _tendril_points(p0, p3, waves=1.6, amp=0.28 * inch, samples=90,
 
 
 def _simple_connector(c, p0, p3, sx, phase=0.0, loop_at=None):
-    """A gently meandering tendril from p0 to p3 (few, lazy waves)."""
-    pts = _tendril_points(p0, p3, waves=1.5, amp=0.24 * inch,
+    """A single gentle-bend tendril that stays in its own lane."""
+    pts = _tendril_points(p0, p3, waves=0.5, amp=0.10 * inch,
                           phase=phase, loop_at=loop_at)
     _catmull_rom(c, pts)
 
 
 def _frolicky_connector(c, p0, p3, sx, phase=0.0, loop_at=0.5):
-    """A loopier tendril: a touch more wander plus a little curl."""
-    pts = _tendril_points(p0, p3, waves=2.0, amp=0.30 * inch,
+    """Same lazy single bend, but with one little loop along the way."""
+    pts = _tendril_points(p0, p3, waves=0.5, amp=0.12 * inch,
                           phase=phase, loop_at=loop_at)
     _catmull_rom(c, pts)
 
@@ -166,13 +166,13 @@ def draw_bezier_connectors(c, cx, cy, pluto_d=2.5, n=32, **kw):
         # end at the rectangle's inner edge
         p3 = (it["rx"] - it["sx"] * it["w"], it["ry"])
         day = it["idx"] + 1
-        phase = (it["idx"] * 2.3) % (2.0 * math.pi)   # vary each tendril
-        # sprinkle a few loops for organic, hand-drawn variety
-        loop = 0.45 + 0.1 * ((it["idx"] % 3) - 1) if (it["idx"] % 4 == 0) else None
-        if day in FROLICKY_DAYS:
-            _frolicky_connector(c, p0, p3, it["sx"], phase=phase, loop_at=loop or 0.5)
+        phase = (it["idx"] * 2.3) % (2.0 * math.pi)   # slight per-lane variety
+        # only a handful of tendrils get a little loop, like the sketch
+        loop = 0.55 if day in (17, 20, 24) else None
+        if loop is not None:
+            _frolicky_connector(c, p0, p3, it["sx"], phase=phase, loop_at=loop)
         else:
-            _simple_connector(c, p0, p3, it["sx"], phase=phase, loop_at=loop)
+            _simple_connector(c, p0, p3, it["sx"], phase=phase)
     c.restoreState()
 
 
