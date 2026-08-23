@@ -204,8 +204,10 @@ def draw_bezier_connectors(c, cx, cy, pluto_d=2.5, n=32, **kw):
     c.setStrokeColor(Color(0.35, 0.35, 0.35))   # pencil gray
     c.setLineWidth(0.8)
     # Cross adjacent boxes so their connectors form a gentle S (idx-based):
-    #   day 8 <-> day 9  (idx 7 <-> 8),  day 24 <-> day 25 (idx 23 <-> 24)
-    ORBIT_SWAP = {7: 8, 8: 7, 23: 24, 24: 23}
+    #   day 8 <-> day 9  (idx 7 <-> 8),   day 24 <-> day 25 (idx 23 <-> 24)
+    #   day 1 <-> day 32 (idx 0 <-> 31),  day 16 <-> day 17  (idx 15 <-> 16)
+    ORBIT_SWAP = {7: 8, 8: 7, 23: 24, 24: 23,
+                  0: 31, 31: 0, 15: 16, 16: 15}
     for it in items:
         # Orbit target may be swapped with a neighbor to cross into an S-curve.
         orbit_idx = ORBIT_SWAP.get(it["idx"], it["idx"])
