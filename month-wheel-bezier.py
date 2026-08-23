@@ -24,15 +24,13 @@ Paper (--paper):
                              split by a center CUT line. Two separate
                              half-letter pages. Landings via --two-up.
   * a5-fold-in-letter     -> TWO wheels on a US Letter PORTRAIT sheet, split by
-                             a center FOLD line (not a cut). The TOP wheel is
-                             rotated 180 so that when you fold the sheet in half
-                             (printed side out) BOTH faces read right-side-up.
-                             Side crop marks trim the width down to A5 (8.27).
-                             The result is an "A5-ish" double-sided folded card
-                             (folded height 5.5in is a touch under A5's 5.83in)
-                             for a traveler's-notebook-style insert: fold, trim
-                             sides, tuck into an A5 notebook, band the spine.
-                             Landings via --two-up.
+                             a center FOLD line (not a cut). Both wheels are
+                             upright (no rotation). Side crop marks trim the
+                             width down to A5 (8.27). The result is an "A5-ish"
+                             double-sided folded card (folded height 5.5in is a
+                             touch under A5's 5.83in) for a traveler's-notebook-
+                             style insert: fold, trim sides, tuck into an A5
+                             notebook, band the spine. Landings via --two-up.
 
 Usage:
   python month-wheel-bezier_38.py --landing on --paper a5-in-letter
@@ -488,19 +486,8 @@ def draw_day_numbers(c, cx, cy, neptune_d=2.0, pluto_d=2.5, n=32,
         c.restoreState()
 
 
-def draw_wheel(c, cx, cy, landing="on", radial_exp=5.0, rotate180=False):
-    """Draw ONE complete month-wheel centered at (cx, cy).
-
-    rotate180: if True, the entire wheel (rings, numbers, connectors, boxes)
-    is turned 180 about its center. Used for the fold booklet's TOP wheel so
-    that, once folded printed-side-out, both faces of the card read upright.
-    """
-    c.saveState()
-    if rotate180:
-        c.translate(cx, cy)
-        c.rotate(180)
-        c.translate(-cx, -cy)
-
+def draw_wheel(c, cx, cy, landing="on", radial_exp=5.0):
+    """Draw ONE complete month-wheel centered at (cx, cy)."""
     for d in [2.5, 2.0, 1.5, 1.0]:
         c.circle(cx, cy, (d / 2.0) * inch, stroke=1, fill=0)
 
@@ -513,7 +500,6 @@ def draw_wheel(c, cx, cy, landing="on", radial_exp=5.0, rotate180=False):
     draw_belt_rectangles(c, cx, cy, major_in=4.0, minor_in=3.5,
                          rect_w_in=1.25, rect_h_in=0.25, gap_in=0.25, n=32)
     draw_day_numbers(c, cx, cy, neptune_d=2.0, pluto_d=2.5, n=32)
-    c.restoreState()
 
 
 def create_a5_concentric_circles(filename="blank_a5_landscape.pdf",
@@ -534,10 +520,8 @@ def create_a5_concentric_circles(filename="blank_a5_landscape.pdf",
         top_landing, bottom_landing = two_up
         is_fold = (paper == "a5-fold-in-letter")
 
-        # Top wheel: rotated 180 ONLY for the fold layout (so the folded card
-        # reads upright on both faces). Bottom wheel always upright.
-        draw_wheel(c, width / 2.0, 3.0 * height / 4.0, top_landing,
-                   radial_exp, rotate180=is_fold)
+        # Both wheels upright (no rotation), for the cut and fold layouts alike.
+        draw_wheel(c, width / 2.0, 3.0 * height / 4.0, top_landing, radial_exp)
         draw_wheel(c, width / 2.0, 1.0 * height / 4.0, bottom_landing,
                    radial_exp)
 
@@ -548,7 +532,7 @@ def create_a5_concentric_circles(filename="blank_a5_landscape.pdf",
             trim_in = (width - a5_w) / 2.0        # ~0.115 in each side
             draw_side_crop_marks(c, trim_in, 0.0, height)
             draw_side_crop_marks(c, width - trim_in, 0.0, height)
-            note = f"top={top_landing} (rot180), bottom={bottom_landing}, FOLD"
+            note = f"top={top_landing}, bottom={bottom_landing}, FOLD"
         else:
             # Center CUT line -> two separate half-letter pages.
             draw_cut_line(c, 0.0, width, height / 2.0)
@@ -631,8 +615,8 @@ def main():
              "box. 'half-letter-in-half-letter' = half-letter sheet, "
              "edge-to-edge. 'letter-2up' = two wheels on portrait letter with a "
              "center CUT line -> two half-letter pages. 'a5-fold-in-letter' = "
-             "two wheels on portrait letter with a center FOLD line (top wheel "
-             "rotated 180); fold + trim sides for an A5-ish double-sided card. "
+             "two wheels on portrait letter with a center FOLD line (both "
+             "upright); fold + trim sides for an A5-ish double-sided card. "
              "Default: a5-in-letter")
     parser.add_argument(
         "--two-up", type=_parse_two_up, default=TWO_UP_LANDINGS,
