@@ -134,20 +134,52 @@ def _tendril_points(p0, p3, waves=1.6, amp=0.28 * inch, samples=90,
     return pts
 
 
+def _swagger_controls(p0, p3, k_frac=1.25, k_min=14.0):
+    """Return the two horizontal control points for a swagger from p3 -> p0."""
+    dirx = 1.0 if (p0[0] - p3[0]) >= 0 else -1.0
+    k = max(k_frac * abs(p0[0] - p3[0]), k_min)
+    c1 = (p3[0] + dirx * k, p3[1])     # leave the box horizontally
+    c2 = (p0[0] - dirx * k, p0[1])     # arrive on the orbit horizontally
+    return c1, c2
+
+
 def _swagger_connector(c, p0, p3, k_frac=1.25, k_min=14.0):
     """Horizontal S-swagger from the rectangle (p3) into the Pluto orbit (p0).
 
     Both ends use HORIZONTAL tangents, so the curve leaves the box sideways,
     gently swaggers, and settles horizontally onto the orbit -- no diagonal.
     """
-    p0x, p0y = p0
-    p3x, p3y = p3
-    dirx = 1.0 if (p0x - p3x) >= 0 else -1.0
-    k = max(k_frac * abs(p0x - p3x), k_min)
-    c.bezier(p3x, p3y,
-             p3x + dirx * k, p3y,      # leave the box horizontally
-             p0x - dirx * k, p0y,      # arrive on the orbit horizontally
-             p0x, p0y)
+    c1, c2 = _swagger_controls(p0, p3, k_frac, k_min)
+    c.bezier(p3[0], p3[1], c1[0], c1[1], c2[0], c2[1], p0[0], p0[1])
+
+
+def _bezier_point(p_start, c1, c2, p_end, t):
+    """Evaluate a cubic Bezier at parameter t in [0, 1]."""
+    mt = 1.0 - t
+    x = (mt**3 * p_start[0] + 3 * mt**2 * t * c1[0]
+         + 3 * mt * t**2 * c2[0] + t**3 * p_end[0])
+    y = (mt**3 * p_start[1] + 3 * mt**2 * t * c1[1]
+         + 3 * mt * t**2 * c2[1] + t**3 * p_end[1])
+    return (x, y)
+
+
+def _swagger_loop_connector(c, p0, p3, k_frac=1.25, k_min=14.0,
+                            loop_r=0.11 * inch, loop_at=0.5, samples=72):
+    """Same horizontal swagger, but with a little loop tied along the way.
+    Used for the mostly-horizontal lanes near 3 o'clock and 9 o'clock."""
+    c1, c2 = _swagger_controls(p0, p3, k_frac, k_min)
+    pts = []
+    for s in range(samples + 1):
+        t = s / samples
+        px, py = _bezier_point(p3, c1, c2, p0, t)   # p3 (box) -> p0 (orbit)
+        if abs(t - loop_at) < (0.5 / samples):
+            # small circle, offset toward the sun so it reads as a curl
+            for a in range(0, 361, 18):
+                ang = math.radians(a)
+                pts.append((px + loop_r * math.cos(ang) - loop_r,
+                            py + loop_r * math.sin(ang)))
+        pts.append((px, py))
+    _catmull_rom(c, pts)
 
 
 def _loop_connector(c, p0, p3, loop_r=0.13 * inch):
@@ -178,12 +210,17 @@ def draw_bezier_connectors(c, cx, cy, pluto_d=2.5, n=32, **kw):
         # end at the rectangle's inner edge
         p3 = (it["rx"] - it["sx"] * it["w"], it["ry"])
         day = it["idx"] + 1
-        # Decide horizontal-swagger vs. loop based on the lane geometry:
-        # if the box is (nearly) straight above/below its orbit point, loop.
+        # Days near 3 o'clock (right) and 9 o'clock (left) get a curl.
+        LOOP_DAYS_SIDE = {7, 8, 9, 10, 23, 24, 25, 26}
+        # Decide connector style based on lane geometry / day:
         span_x = abs(p3[0] - p0[0])
         span_y = abs(p3[1] - p0[1])
         if span_x < 0.55 * span_y:
+            # box is ~straight above/below its orbit point -> vertical loop
             _loop_connector(c, p0, p3)
+        elif day in LOOP_DAYS_SIDE:
+            # mostly-horizontal lane -> swagger with a little curl
+            _swagger_loop_connector(c, p0, p3)
         else:
             _swagger_connector(c, p0, p3)
     c.restoreState()
