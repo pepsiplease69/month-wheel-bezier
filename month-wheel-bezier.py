@@ -201,7 +201,7 @@ def _tendril_points(p0, p3, waves=1.6, amp=0.28 * inch, samples=90,
 
 
 def _swagger_controls(p0, p3, center=None, k_frac=1.25, k_min=14.0,
-                      radial_exp=3.0):
+                      radial_exp=3.0, c2_boost=1.0, curl_deg=0.0):
     """Control points for a swagger from p3 (box) -> p0 (orbit).
 
     c1 (near the box)  : horizontal, so the curve leaves the rectangle flat
@@ -224,6 +224,12 @@ def _swagger_controls(p0, p3, center=None, k_frac=1.25, k_min=14.0,
                          radial_exp sharpens the transition: higher = radial
                          is confined to a tighter band around 12/6 o'clock.
                          center=None reproduces the pure-horizontal behavior.
+
+    c2_boost / curl_deg: optional LOOP inducers (see LOOP_CURLS). Lengthening
+                         c2 (boost > 1) and rotating its direction tangentially
+                         (curl_deg != 0) makes the cubic self-intersect into a
+                         small pigtail loop right at the landing point. Defaults
+                         (1.0, 0.0) leave the curve untouched.
     """
     dirx = 1.0 if (p0[0] - p3[0]) >= 0 else -1.0
     k = max(k_frac * abs(p0[0] - p3[0]), k_min)
@@ -252,20 +258,30 @@ def _swagger_controls(p0, p3, center=None, k_frac=1.25, k_min=14.0,
     blen = math.hypot(bx, by) or 1.0
     bx, by = bx / blen, by / blen
 
+    # Optional tangential rotation to induce a pigtail loop at the landing.
+    if curl_deg:
+        a = math.radians(curl_deg)
+        rx = bx * math.cos(a) - by * math.sin(a)
+        ry = bx * math.sin(a) + by * math.cos(a)
+        bx, by = rx, ry
+
     # Tangent at the cubic's endpoint p0 is along (p0 - c2); place c2 behind p0.
-    c2 = (p0[0] - bx * k, p0[1] - by * k)
+    # A longer c2 (c2_boost) makes the curve overshoot and curl back on itself.
+    c2 = (p0[0] - bx * k * c2_boost, p0[1] - by * k * c2_boost)
     return c1, c2
 
 
 def _swagger_connector(c, p0, p3, center=None, k_frac=1.25, k_min=14.0,
-                       radial_exp=3.0):
+                       radial_exp=3.0, c2_boost=1.0, curl_deg=0.0):
     """S-swagger from the rectangle (p3) into the Pluto orbit (p0).
 
     Partial radial adoption: side S-curves stay horizontal; only the
     top/bottom (problematic) days swing to a radial landing. See
-    _swagger_controls for the blend details.
+    _swagger_controls for the blend details. c2_boost/curl_deg optionally
+    induce a pigtail loop at the landing (used in --landing between).
     """
-    c1, c2 = _swagger_controls(p0, p3, center, k_frac, k_min, radial_exp)
+    c1, c2 = _swagger_controls(p0, p3, center, k_frac, k_min, radial_exp,
+                               c2_boost=c2_boost, curl_deg=curl_deg)
     c.bezier(p3[0], p3[1], c1[0], c1[1], c2[0], c2[1], p0[0], p0[1])
 
 
@@ -326,6 +342,21 @@ ORBIT_SWAP = {7: 8, 8: 7, 23: 24, 24: 23,
               0: 31, 31: 0, 15: 16, 16: 15}
 
 
+# Pigtail loops at the landing (ONLY used for --landing between). Day 4's
+# connector (the 3/4 border) already loops naturally; these values induce a
+# matching little loop on its near-vertical neighbors. Keyed by DAY number:
+#   value = (c2_boost, curl_deg)
+#     c2_boost > 1  -> lengthen the radial handle so the curve overshoots
+#     curl_deg      -> rotate the landing tangent to open a round loop
+# Tune or extend this dict to add/adjust loops; empty {} disables the effect.
+LOOP_CURLS = {
+    3: (1.20, -16.0),   # 2-3 border  (near-vertical -> negative curl)
+    5: (1.10,  13.0),   # 4-5 border
+    6: (1.15,  15.0),   # 5-6 border
+    # day 4 (3-4 border) loops naturally; no entry needed
+}
+
+
 def draw_bezier_connectors(c, cx, cy, pluto_d=2.5, n=32, landing="on",
                            radial_exp=5.0, **kw):
     """Connectors from each subsector to its box.
@@ -358,7 +389,13 @@ def draw_bezier_connectors(c, cx, cy, pluto_d=2.5, n=32, landing="on",
 
         # Swagger connector for every day (the _loop_connector branch is
         # retired; swagger + partial-radial landing handles 12 & 6 o'clock).
-        _swagger_connector(c, p0, p3, (cx, cy), radial_exp=radial_exp)
+        # In 'between' mode, selected days get a pigtail loop at the landing.
+        if landing == "between":
+            boost, curl = LOOP_CURLS.get(it["idx"] + 1, (1.0, 0.0))
+        else:
+            boost, curl = (1.0, 0.0)
+        _swagger_connector(c, p0, p3, (cx, cy), radial_exp=radial_exp,
+                           c2_boost=boost, curl_deg=curl)
 
         # Contact marker at the Pluto orbit, style depends on landing mode:
         #   on      -> arrowhead pointing inward at the date's midpoint
