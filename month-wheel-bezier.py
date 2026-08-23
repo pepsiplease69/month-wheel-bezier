@@ -62,8 +62,16 @@ def belt_rectangle_layout(cx, cy, major_in=4.0, minor_in=3.5,
 
     # Per-day vertical nudge (idx-based) to break top/bottom symmetry so the
     # 1<->32 and 16<->17 crossings have room to form a real S.
+    # Top/bottom pairs stagger VERTICALLY (open space above/below):
     #   day 1  (idx 0)  -> up 0.25"      day 17 (idx 16) -> down 0.25"
     Y_OFFSET = {0: 0.25 * inch, 16: -0.25 * inch}
+
+    # Side pairs stagger HORIZONTALLY (so vertical neighbors aren't disturbed):
+    #   day 8  (idx 7)  -> out 0.25"     day 9  (idx 8)  -> in 0.25"
+    #   day 24 (idx 23) -> out 0.25"     day 25 (idx 24) -> in 0.25"
+    # (sx is +1 on the right, -1 on the left, so sx * value pushes outward)
+    X_OFFSET = {7: 0.25 * inch, 8: -0.25 * inch,
+                23: 0.25 * inch, 24: -0.25 * inch}
 
     per_side = n // 2
     items = []
@@ -74,8 +82,9 @@ def belt_rectangle_layout(cx, cy, major_in=4.0, minor_in=3.5,
         for sx in (1, -1):
             idx = j if sx == 1 else (n - 1 - j)
             ry = cy + Y + Y_OFFSET.get(idx, 0.0)
+            rx = cx + sx * (X + X_OFFSET.get(idx, 0.0))   # + = outward
             items.append({"idx": idx, "sx": sx,
-                          "rx": cx + sx * X, "ry": ry, "w": w, "h": h})
+                          "rx": rx, "ry": ry, "w": w, "h": h})
     return items
 
 
