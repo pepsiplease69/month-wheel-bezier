@@ -25,11 +25,8 @@ Paper (--paper):
                              half-letter pages. Landings via --two-up.
   * a5-fold-in-letter     -> TWO wheels on a US Letter PORTRAIT sheet, split by
                              a center FOLD line (not a cut). Both wheels are
-                             upright (no rotation) and pushed FLUSH LEFT, so the
-                             whole excess width becomes a SINGLE right-hand trim
-                             margin (~0.23in, clear of the printer dead zone) ->
-                             just ONE cut down the right guide to reach A5 width
-                             (8.27). The result is an "A5-ish"
+                             upright (no rotation). Side crop marks trim the
+                             width down to A5 (8.27). The result is an "A5-ish"
                              double-sided folded card (folded height 5.5in is a
                              touch under A5's 5.83in) for a traveler's-notebook-
                              style insert: fold, trim sides, tuck into an A5
@@ -229,15 +226,13 @@ def belt_rectangle_layout(cx, cy, major_in=4.0, minor_in=3.5,
     B = b + gap + h
     min_off = w + 0.075 * inch
 
-    # Top/bottom pairs stagger VERTICALLY (open space above/below):
-    #   day 1  (idx 0)  -> up 0.25"      day 17 (idx 16) -> down 0.25"
-    Y_OFFSET = {0: 0.25 * inch, 16: -0.25 * inch}
-
-    # Side pairs stagger HORIZONTALLY (no vertical neighbor is disturbed):
-    #   day 8  (idx 7)  -> out 0.25"     day 9  (idx 8)  -> in 0.25"
-    #   day 24 (idx 23) -> out 0.25"     day 25 (idx 24) -> in 0.25"
-    X_OFFSET = {7: 0.25 * inch, 8: -0.25 * inch,
-                23: 0.25 * inch, 24: -0.25 * inch}
+    # Box staggers DISABLED. These nudges existed ONLY to give the old crossing
+    # S-curves room at 12/3/6/9 o'clock. With cross-wiring removed (ORBIT_SWAP
+    # empty), the boxes sit evenly and each wires straight to its own slot.
+    # (To restore, set Y_OFFSET = {0: 0.25*inch, 16: -0.25*inch} and
+    #  X_OFFSET = {7: 0.25*inch, 8: -0.25*inch, 23: 0.25*inch, 24: -0.25*inch}.)
+    Y_OFFSET = {}
+    X_OFFSET = {}
 
     per_side = n // 2
     items = []
@@ -395,10 +390,13 @@ def draw_contact_dot(c, p0, radius=0.028 * inch):
     c.restoreState()
 
 
-# Cross adjacent boxes so their connectors form a gentle S (idx-based):
-#   day 8 <-> day 9,  day 24 <-> day 25,  day 1 <-> day 32,  day 16 <-> day 17
-ORBIT_SWAP = {7: 8, 8: 7, 23: 24, 24: 23,
-              0: 31, 31: 0, 15: 16, 16: 15}
+# Cross-wiring DISABLED. Previously this swapped adjacent boxes at 12/3/6/9
+# o'clock (days 1<->32, 8<->9, 16<->17, 24<->25) so their connectors crossed
+# into a decorative S. In practice the crossings were non-intuitive and led to
+# logging the wrong day, so every box now wires STRAIGHT to its own orbit slot.
+# (To restore the old look, repopulate this dict: {7:8, 8:7, 23:24, 24:23,
+#  0:31, 31:0, 15:16, 16:15}.)
+ORBIT_SWAP = {}
 
 
 # Pigtail loops at the landing (ONLY used for --landing between). Day 4's
@@ -526,15 +524,13 @@ def create_a5_concentric_circles(filename="blank_a5_landscape.pdf",
         if is_fold:
             # FLUSH-LEFT layout: the finished A5-width page hugs the paper's
             # LEFT edge, so ALL the excess width piles into a SINGLE trim margin
-            # on the RIGHT. One cut instead of two, and it lands ~0.23in from the
-            # edge (double the old ~0.115in split), clearing most printers' dead
-            # zone. Print at 100% and slice once down the right guide.
+            # on the RIGHT (~0.23in, clear of the printer dead zone). One cut
+            # instead of two. Print at 100% and slice once down the right guide.
             a5_w = landscape(A5)[0]               # 8.27 in finished width
             cx_wheel = a5_w / 2.0                 # center wheels in that width
             draw_wheel(c, cx_wheel, 3.0 * height / 4.0, top_landing, radial_exp)
             draw_wheel(c, cx_wheel, 1.0 * height / 4.0, bottom_landing,
                        radial_exp)
-            # FOLD line spans only the finished width; single RIGHT cut guide.
             draw_fold_line(c, 0.0, a5_w, height / 2.0)
             draw_side_crop_marks(c, a5_w, 0.0, height)
             note = (f"top={top_landing}, bottom={bottom_landing}, "
