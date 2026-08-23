@@ -85,43 +85,58 @@ def draw_belt_rectangles(c, cx, cy, **kw):
     c.restoreState()
 
 
-def _simple_connector(c, p0, p3, sx, handle=0.45):
-    """Single smooth S: horizontal tangents at both ends."""
+def _catmull_rom(c, pts):
+    """Draw a smooth path through pts using Catmull-Rom -> Bezier segments."""
+    p = c.beginPath()
+    p.moveTo(*pts[0])
+    n = len(pts)
+    for i in range(n - 1):
+        p0 = pts[max(i - 1, 0)]
+        p1 = pts[i]
+        p2 = pts[i + 1]
+        p3 = pts[min(i + 2, n - 1)]
+        c1x = p1[0] + (p2[0] - p0[0]) / 6.0
+        c1y = p1[1] + (p2[1] - p0[1]) / 6.0
+        c2x = p2[0] - (p3[0] - p1[0]) / 6.0
+        c2y = p2[1] - (p3[1] - p1[1]) / 6.0
+        p.curveTo(c1x, c1y, c2x, c2y, p2[0], p2[1])
+    c.drawPath(p, stroke=1, fill=0)
+
+
+def _squiggle_points(p0, p3, waves=3.0, amp=0.09 * inch, samples=64,
+                     phase=0.0, taper=True):
+    """Sample points along p0->p3 with a sinusoidal perpendicular wobble,
+    producing a hand-drawn, flame-like tendril."""
     p0x, p0y = p0
     p3x, p3y = p3
-    k = max(handle * abs(p3x - p0x), 10.0)
-    c.bezier(p0x, p0y,
-             p0x + sx * k, p0y,
-             p3x - sx * k, p3y,
-             p3x, p3y)
+    dx, dy = p3x - p0x, p3y - p0y
+    length = math.hypot(dx, dy) or 1.0
+    ux, uy = dx / length, dy / length          # along-path unit vector
+    nx, ny = -uy, ux                            # perpendicular unit vector
+
+    pts = []
+    for s in range(samples + 1):
+        t = s / samples
+        # base point along the straight line
+        bx = p0x + dx * t
+        by = p0y + dy * t
+        # sinusoidal offset; taper the ends so it starts/lands cleanly
+        env = math.sin(math.pi * t) if taper else 1.0
+        off = amp * env * math.sin(2.0 * math.pi * waves * t + phase)
+        pts.append((bx + nx * off, by + ny * off))
+    return pts
 
 
-def _frolicky_connector(c, p0, p3, sx, handle=0.6, wiggle=0.18 * inch):
-    """Smooth double-inflection S: two chained cubics with horizontal tangents
-    at the start, the middle waypoint, and the end -> no sharp corners, but a
-    wander-y, hand-drawn feel. The mid waypoint is nudged vertically so the
-    path loops out before settling into the box."""
-    p0x, p0y = p0
-    p3x, p3y = p3
+def _simple_connector(c, p0, p3, sx, waves=2.5, amp=0.08 * inch, phase=0.0):
+    """A gently wiggly tendril from p0 to p3."""
+    pts = _squiggle_points(p0, p3, waves=waves, amp=amp, phase=phase)
+    _catmull_rom(c, pts)
 
-    mx = (p0x + p3x) / 2.0
-    my = (p0y + p3y) / 2.0
-    # push the mid waypoint away from the wheel center for a frolicky bulge
-    my += wiggle if p3y >= 0 else -wiggle
 
-    k1 = max(handle * abs(mx - p0x), 10.0)
-    k2 = max(handle * abs(p3x - mx), 10.0)
-
-    # segment 1: p0 -> mid  (horizontal tangents both ends)
-    c.bezier(p0x, p0y,
-             p0x + sx * k1, p0y,
-             mx - sx * k1, my,
-             mx, my)
-    # segment 2: mid -> p3  (horizontal tangents both ends -> smooth join)
-    c.bezier(mx, my,
-             mx + sx * k2, my,
-             p3x - sx * k2, p3y,
-             p3x, p3y)
+def _frolicky_connector(c, p0, p3, sx, waves=2.5, amp=0.13 * inch, phase=0.0):
+    """A more frolicky, multi-wave tendril from p0 to p3."""
+    pts = _squiggle_points(p0, p3, waves=waves, amp=amp, phase=phase)
+    _catmull_rom(c, pts)
 
 
 def draw_bezier_connectors(c, cx, cy, pluto_d=2.5, n=32, **kw):
@@ -133,24 +148,20 @@ def draw_bezier_connectors(c, cx, cy, pluto_d=2.5, n=32, **kw):
     step = 2.0 * math.pi / n
 
     c.saveState()
-    c.setStrokeColor(Color(0.45, 0.45, 0.45))
-    c.setLineWidth(0.6)
+    c.setStrokeColor(Color(0.85, 0.20, 0.15))   # red, like the sketch
+    c.setLineWidth(1.0)
     for it in items:
         theta = (it["idx"] + 0.5) * step
+        # start on the Pluto orbit for this subsector
         p0 = (cx + r_pluto * math.sin(theta), cy + r_pluto * math.cos(theta))
+        # end at the rectangle's inner edge
         p3 = (it["rx"] - it["sx"] * it["w"], it["ry"])
         day = it["idx"] + 1
-        # translate so wiggle sign uses page-relative y (above/below center)
-        p0_rel = (p0[0], p0[1] - cy)
-        p3_rel = (p3[0], p3[1] - cy)
+        phase = (it["idx"] * 1.7) % (2.0 * math.pi)   # vary each tendril
         if day in FROLICKY_DAYS:
-            # draw in center-relative coords for the wiggle sign, then offset
-            c.saveState()
-            c.translate(0, cy)
-            _frolicky_connector(c, p0_rel, p3_rel, it["sx"])
-            c.restoreState()
+            _frolicky_connector(c, p0, p3, it["sx"], phase=phase)
         else:
-            _simple_connector(c, p0, p3, it["sx"])
+            _simple_connector(c, p0, p3, it["sx"], phase=phase)
     c.restoreState()
 
 
