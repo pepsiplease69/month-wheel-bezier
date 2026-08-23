@@ -21,13 +21,14 @@ Paper / trimming (--paper):
   * letter      -> page is US Letter (landscape), wheel centered, with an A5
                    TRIM rectangle + corner crop marks. Print at 100% (actual
                    size, no "fit to page") then cut along the box to get A5.
-  * letter-2up  -> TWO wheels on a US Letter PORTRAIT sheet (8.5 x 11), one per
-                   half-letter region, split by a center cut line. Two months
-                   per sheet; cut in half to get two half-letter pages.
+  * letter-2up  -> TWO wheels on a US Letter PORTRAIT sheet (8.5 x 11), split
+                   by a center cut line. TOP wheel = 'between', BOTTOM wheel =
+                   'on' (see TWO_UP_LANDINGS). Cut in half for two half-letter
+                   pages, one of each landing style.
 
 Usage:
-  python month-wheel-bezier_32.py --landing on --paper letter
-  python month-wheel-bezier_32.py --landing between --paper letter-2up
+  python month-wheel-bezier_33.py --landing on --paper letter
+  python month-wheel-bezier_33.py --paper letter-2up
 """
 
 import argparse
@@ -44,6 +45,10 @@ from reportlab.lib.colors import Color
 # 8.5 x 5.5. NOTE: it is 0.33 in SHORTER than A5, so A5 does not fit inside it
 # -> it is a standalone edge-to-edge base size, never a trim target.
 HALF_LETTER = (5.5 * inch, 8.5 * inch)
+
+# letter-2up wheel landings, TOP first then BOTTOM. Change these to mix/match
+# the two stacked wheels (e.g. ("on", "on") for two identical wheels).
+TWO_UP_LANDINGS = ("between", "on")
 
 
 def draw_dotted_ellipse(c, cx, cy, major_in=4.0, minor_in=3.5):
@@ -502,7 +507,8 @@ def create_a5_concentric_circles(filename="blank_a5_landscape.pdf",
       "letter"      -> page is US Letter landscape; A5 wheel is centered with a
                        trim rectangle + crop marks so you can cut it to A5.
       "letter-2up"  -> two wheels on a US Letter PORTRAIT sheet (8.5 x 11),
-                       one per half-letter region, with a center cut line.
+                       TOP = 'between', BOTTOM = 'on' (TWO_UP_LANDINGS), with a
+                       center cut line. The --landing flag is ignored here.
     """
     a5_size = landscape(A5)              # (210mm x 148mm) -> the trim box
     trim_w, trim_h = a5_size
@@ -513,9 +519,11 @@ def create_a5_concentric_circles(filename="blank_a5_landscape.pdf",
         width, height = page_size
         c = canvas.Canvas(filename, pagesize=page_size)
 
+        top_landing, bottom_landing = TWO_UP_LANDINGS
         # Each half-letter region is 8.5 x 5.5; center a wheel in each.
-        draw_wheel(c, width / 2.0, 3.0 * height / 4.0, landing, radial_exp)
-        draw_wheel(c, width / 2.0, 1.0 * height / 4.0, landing, radial_exp)
+        draw_wheel(c, width / 2.0, 3.0 * height / 4.0, top_landing, radial_exp)
+        draw_wheel(c, width / 2.0, 1.0 * height / 4.0, bottom_landing,
+                   radial_exp)
 
         # Center cut line separating the two half-letter pages.
         draw_cut_line(c, 0.0, width, height / 2.0)
@@ -523,7 +531,7 @@ def create_a5_concentric_circles(filename="blank_a5_landscape.pdf",
         c.showPage()
         c.save()
         print(f"Created month-wheel PDF: {filename}  "
-              f"(landing={landing}, paper={paper}, 2 wheels)")
+              f"(paper={paper}, top={top_landing}, bottom={bottom_landing})")
         return
 
     # --- single-wheel sheets ---
@@ -557,6 +565,7 @@ def main():
         "--landing", choices=["on", "between"], default="on",
         help="Where connectors meet the Pluto orbit: 'on' the dates "
              "(sector midpoints) or 'between' dates (sector borderlines). "
+             "Ignored for --paper letter-2up (uses TWO_UP_LANDINGS). "
              "Default: on")
     parser.add_argument(
         "--paper", choices=["a5", "half-letter", "letter", "letter-2up"],
@@ -564,8 +573,8 @@ def main():
         help="Sheet size. 'a5' = edge-to-edge A5. 'half-letter' = edge-to-edge "
              "half US Letter (8.5x5.5 landscape). 'letter' = US Letter "
              "landscape with an A5 trim box + crop marks. 'letter-2up' = two "
-             "wheels on a portrait letter sheet with a center cut line. "
-             "Default: letter")
+             "wheels on a portrait letter sheet (top=between, bottom=on) with "
+             "a center cut line. Default: letter")
     parser.add_argument(
         "--radial-sharpness", type=float, default=5.0, dest="radial_exp",
         help="Sharpness of the partial radial landing (blend weight is "
