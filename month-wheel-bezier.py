@@ -13,25 +13,31 @@ Connector styles:
   * partial radial  -> near-vertical days swing to a radial landing
   * pigtail loops   -> selected 'between' days curl at the landing (LOOP_CURLS)
 
-Paper (--paper): every mode prints on a US Letter sheet, so you only need
-letter stock and a trimmer/guillotine:
+Paper (--paper):
   * a5-in-letter          -> US Letter LANDSCAPE with an A5 (8.27x5.83) TRIM
-                             box + corner crop marks. Print at 100% (actual
-                             size, no "fit to page") then cut to A5.
+                             box + crop marks. Print at 100%, cut to A5.
   * half-letter-in-letter -> US Letter LANDSCAPE with a HALF-LETTER (8.5x5.5)
-                             TRIM box + corner crop marks. Cut to half-letter.
+                             TRIM box + crop marks. Cut to half-letter.
   * half-letter-in-half-letter -> HALF-LETTER (8.5x5.5) LANDSCAPE sheet,
-                             edge-to-edge. Print directly on half-letter stock;
-                             no trim box or crop marks needed.
+                             edge-to-edge. Print directly on half-letter stock.
   * letter-2up            -> TWO wheels on a US Letter PORTRAIT sheet (8.5x11),
-                             split by a center cut line. Landings set by
-                             --two-up (default: between,on). Cut in half for
-                             two half-letter pages.
+                             split by a center CUT line. Two separate
+                             half-letter pages. Landings via --two-up.
+  * a5-fold-in-letter     -> TWO wheels on a US Letter PORTRAIT sheet, split by
+                             a center FOLD line (not a cut). The TOP wheel is
+                             rotated 180 so that when you fold the sheet in half
+                             (printed side out) BOTH faces read right-side-up.
+                             Side crop marks trim the width down to A5 (8.27).
+                             The result is an "A5-ish" double-sided folded card
+                             (folded height 5.5in is a touch under A5's 5.83in)
+                             for a traveler's-notebook-style insert: fold, trim
+                             sides, tuck into an A5 notebook, band the spine.
+                             Landings via --two-up.
 
 Usage:
-  python month-wheel-bezier_35.py --landing on --paper a5-in-letter
-  python month-wheel-bezier_35.py --landing between --paper half-letter-in-letter
-  python month-wheel-bezier_35.py --paper letter-2up --two-up between,on
+  python month-wheel-bezier_38.py --landing on --paper a5-in-letter
+  python month-wheel-bezier_38.py --paper letter-2up --two-up between,on
+  python month-wheel-bezier_38.py --paper a5-fold-in-letter --two-up between,on
 """
 
 import argparse
@@ -48,7 +54,7 @@ from reportlab.lib.colors import Color
 # 8.5 x 5.5.
 HALF_LETTER = (5.5 * inch, 8.5 * inch)
 
-# Default letter-2up wheel landings, TOP first then BOTTOM. Overridable at the
+# Default 2-up / fold wheel landings, TOP first then BOTTOM. Overridable at the
 # command line with --two-up (e.g. "on,on", "between,between", "on,between").
 TWO_UP_LANDINGS = ("between", "on")
 
@@ -129,6 +135,68 @@ def draw_cut_line(c, x0, x1, y, tick_len=0.16 * inch):
     c.setDash()
     c.line(x0, y, x0 + tick_len, y)
     c.line(x1 - tick_len, y, x1, y)
+    c.restoreState()
+
+
+def draw_fold_line(c, x0, x1, y, label="FOLD", tick_len=0.16 * inch,
+                   font_size=6.5):
+    """Horizontal FOLD line from x0..x1 at height y (for the fold booklet).
+
+    Distinct from a cut line: dot-dash "valley fold" styling, end ticks, and
+    a small centered 'FOLD' label so you don't cut it by mistake.
+    """
+    c.saveState()
+    c.setStrokeColor(Color(0.55, 0.55, 0.55))
+    c.setLineWidth(0.6)
+    c.setDash([6, 2, 1, 2])   # dot-dash = classic fold-line convention
+    c.line(x0, y, x1, y)
+    c.restoreState()
+
+    # End ticks (solid).
+    c.saveState()
+    c.setStrokeColor(Color(0.0, 0.0, 0.0))
+    c.setLineWidth(0.7)
+    c.setDash()
+    c.line(x0, y, x0 + tick_len, y)
+    c.line(x1 - tick_len, y, x1, y)
+    c.restoreState()
+
+    # Centered label sitting just above the line, on a small white gap.
+    c.saveState()
+    cx = (x0 + x1) / 2.0
+    c.setFont("Helvetica", font_size)
+    tw = c.stringWidth(label, "Helvetica", font_size)
+    pad = 3
+    c.setFillColor(Color(1, 1, 1))
+    c.rect(cx - tw / 2.0 - pad, y - 1.5, tw + 2 * pad, font_size + 2,
+           stroke=0, fill=1)
+    c.setFillColor(Color(0.35, 0.35, 0.35))
+    c.drawCentredString(cx, y + 2.0, label)
+    c.restoreState()
+
+
+def draw_side_crop_marks(c, x, y0, y1, mark_len=0.22 * inch,
+                         mark_gap=0.06 * inch):
+    """Vertical crop ticks at a trim-x, pointing outward at top & bottom edges.
+
+    Used by the fold booklet to mark where to trim the WIDTH down to A5. y0/y1
+    are the page bottom/top; ticks sit just beyond them so they get cut away.
+    """
+    c.saveState()
+    c.setStrokeColor(Color(0.0, 0.0, 0.0))
+    c.setLineWidth(0.6)
+    c.setDash()
+    # bottom tick pointing down, top tick pointing up
+    c.line(x, y0 - mark_gap, x, y0 - mark_gap - mark_len)
+    c.line(x, y1 + mark_gap, x, y1 + mark_gap + mark_len)
+    c.restoreState()
+
+    # Faint dashed trim guide spanning the sheet at this x.
+    c.saveState()
+    c.setStrokeColor(Color(0.6, 0.6, 0.6))
+    c.setLineWidth(0.4)
+    c.setDash(2, 3)
+    c.line(x, y0, x, y1)
     c.restoreState()
 
 
@@ -420,12 +488,19 @@ def draw_day_numbers(c, cx, cy, neptune_d=2.0, pluto_d=2.5, n=32,
         c.restoreState()
 
 
-def draw_wheel(c, cx, cy, landing="on", radial_exp=5.0):
+def draw_wheel(c, cx, cy, landing="on", radial_exp=5.0, rotate180=False):
     """Draw ONE complete month-wheel centered at (cx, cy).
 
-    Extracted so it can be placed once (single-wheel sheets) or twice
-    (letter-2up) on the same canvas.
+    rotate180: if True, the entire wheel (rings, numbers, connectors, boxes)
+    is turned 180 about its center. Used for the fold booklet's TOP wheel so
+    that, once folded printed-side-out, both faces of the card read upright.
     """
+    c.saveState()
+    if rotate180:
+        c.translate(cx, cy)
+        c.rotate(180)
+        c.translate(-cx, -cy)
+
     for d in [2.5, 2.0, 1.5, 1.0]:
         c.circle(cx, cy, (d / 2.0) * inch, stroke=1, fill=0)
 
@@ -438,6 +513,7 @@ def draw_wheel(c, cx, cy, landing="on", radial_exp=5.0):
     draw_belt_rectangles(c, cx, cy, major_in=4.0, minor_in=3.5,
                          rect_w_in=1.25, rect_h_in=0.25, gap_in=0.25, n=32)
     draw_day_numbers(c, cx, cy, neptune_d=2.0, pluto_d=2.5, n=32)
+    c.restoreState()
 
 
 def create_a5_concentric_circles(filename="blank_a5_landscape.pdf",
@@ -445,39 +521,42 @@ def create_a5_concentric_circles(filename="blank_a5_landscape.pdf",
                                  radial_exp=5.0, two_up=TWO_UP_LANDINGS):
     """Month-wheel on a US Letter sheet.
 
-    paper:
-      "a5-in-letter"          -> letter LANDSCAPE + A5 (8.27x5.83) trim box
-                                 + crop marks. Cut to A5.
-      "half-letter-in-letter" -> letter LANDSCAPE + half-letter (8.5x5.5) trim
-                                 box + crop marks. Cut to half-letter.
-      "half-letter-in-half-letter" -> half-letter (8.5x5.5) LANDSCAPE sheet,
-                                 edge-to-edge (no trim box). Print on
-                                 half-letter stock directly.
-      "letter-2up"            -> two wheels on a letter PORTRAIT sheet (8.5x11)
-                                 with a center cut line. two_up = (top, bottom)
-                                 landings. The --landing flag is ignored here.
-
-    two_up: a (top_landing, bottom_landing) tuple used only for letter-2up.
+    See module docstring / --paper help for what each layout produces.
+    two_up: a (top_landing, bottom_landing) tuple used for the 2-up and fold
+    layouts.
     """
-    # --- 2-up: two wheels on a portrait letter sheet, split by a cut line ---
-    if paper == "letter-2up":
+    # --- 2-up (CUT) and fold (FOLD): both stack two wheels on portrait letter
+    if paper in ("letter-2up", "a5-fold-in-letter"):
         page_size = letter              # PORTRAIT 8.5 x 11 in
         width, height = page_size
         c = canvas.Canvas(filename, pagesize=page_size)
 
         top_landing, bottom_landing = two_up
-        # Each half-letter region is 8.5 x 5.5; center a wheel in each.
-        draw_wheel(c, width / 2.0, 3.0 * height / 4.0, top_landing, radial_exp)
+        is_fold = (paper == "a5-fold-in-letter")
+
+        # Top wheel: rotated 180 ONLY for the fold layout (so the folded card
+        # reads upright on both faces). Bottom wheel always upright.
+        draw_wheel(c, width / 2.0, 3.0 * height / 4.0, top_landing,
+                   radial_exp, rotate180=is_fold)
         draw_wheel(c, width / 2.0, 1.0 * height / 4.0, bottom_landing,
                    radial_exp)
 
-        # Center cut line separating the two half-letter pages.
-        draw_cut_line(c, 0.0, width, height / 2.0)
+        if is_fold:
+            # Center FOLD line (not a cut) + side crop marks to trim to A5 width.
+            draw_fold_line(c, 0.0, width, height / 2.0)
+            a5_w = landscape(A5)[0]               # 8.27 in target width
+            trim_in = (width - a5_w) / 2.0        # ~0.115 in each side
+            draw_side_crop_marks(c, trim_in, 0.0, height)
+            draw_side_crop_marks(c, width - trim_in, 0.0, height)
+            note = f"top={top_landing} (rot180), bottom={bottom_landing}, FOLD"
+        else:
+            # Center CUT line -> two separate half-letter pages.
+            draw_cut_line(c, 0.0, width, height / 2.0)
+            note = f"top={top_landing}, bottom={bottom_landing}, CUT"
 
         c.showPage()
         c.save()
-        print(f"Created month-wheel PDF: {filename}  "
-              f"(paper={paper}, top={top_landing}, bottom={bottom_landing})")
+        print(f"Created month-wheel PDF: {filename}  (paper={paper}, {note})")
         return
 
     # --- half-letter stock, edge-to-edge (page IS the finished size) ---
@@ -539,24 +618,26 @@ def main():
         "--landing", choices=["on", "between"], default="on",
         help="Where connectors meet the Pluto orbit: 'on' the dates "
              "(sector midpoints) or 'between' dates (sector borderlines). "
-             "Ignored for --paper letter-2up (use --two-up instead). "
+             "Ignored for the 2-up/fold layouts (use --two-up instead). "
              "Default: on")
     parser.add_argument(
         "--paper",
         choices=["a5-in-letter", "half-letter-in-letter",
-                 "half-letter-in-half-letter", "letter-2up"],
+                 "half-letter-in-half-letter", "letter-2up",
+                 "a5-fold-in-letter"],
         default="a5-in-letter",
-        help="Output layout. 'a5-in-letter' = letter landscape + A5 trim box "
-             "+ crop marks. 'half-letter-in-letter' = letter landscape + "
-             "half-letter trim box + crop marks. 'half-letter-in-half-letter' "
-             "= half-letter landscape sheet, edge-to-edge (print on half-letter "
-             "stock, no trimming). 'letter-2up' = two wheels on a portrait "
-             "letter sheet with a center cut line (see --two-up). "
+        help="Output layout. 'a5-in-letter' = letter landscape + A5 trim box. "
+             "'half-letter-in-letter' = letter landscape + half-letter trim "
+             "box. 'half-letter-in-half-letter' = half-letter sheet, "
+             "edge-to-edge. 'letter-2up' = two wheels on portrait letter with a "
+             "center CUT line -> two half-letter pages. 'a5-fold-in-letter' = "
+             "two wheels on portrait letter with a center FOLD line (top wheel "
+             "rotated 180); fold + trim sides for an A5-ish double-sided card. "
              "Default: a5-in-letter")
     parser.add_argument(
         "--two-up", type=_parse_two_up, default=TWO_UP_LANDINGS,
         dest="two_up", metavar="TOP,BOTTOM",
-        help="For --paper letter-2up: the landing of each wheel as "
+        help="For letter-2up / a5-fold-in-letter: the landing of each wheel as "
              "'top,bottom' using 'on'/'between'. A single value applies to "
              "both (e.g. 'on' -> both on). Examples: 'between,on' (default), "
              "'on,on', 'between,between', 'on,between'.")
