@@ -103,10 +103,10 @@ def _catmull_rom(c, pts):
     c.drawPath(p, stroke=1, fill=0)
 
 
-def _squiggle_points(p0, p3, waves=3.0, amp=0.09 * inch, samples=64,
-                     phase=0.0, taper=True):
-    """Sample points along p0->p3 with a sinusoidal perpendicular wobble,
-    producing a hand-drawn, flame-like tendril."""
+def _tendril_points(p0, p3, waves=1.6, amp=0.28 * inch, samples=90,
+                    phase=0.0, taper=True, loop_at=None, loop_r=0.14 * inch):
+    """Sample points for a long, loose, gently-meandering tendril (pencil-vine
+    look). Low-frequency wander + optional little loop/curl along the way."""
     p0x, p0y = p0
     p3x, p3y = p3
     dx, dy = p3x - p0x, p3y - p0y
@@ -117,25 +117,34 @@ def _squiggle_points(p0, p3, waves=3.0, amp=0.09 * inch, samples=64,
     pts = []
     for s in range(samples + 1):
         t = s / samples
-        # base point along the straight line
         bx = p0x + dx * t
         by = p0y + dy * t
-        # sinusoidal offset; taper the ends so it starts/lands cleanly
-        env = math.sin(math.pi * t) if taper else 1.0
+        env = math.sin(math.pi * t) if taper else 1.0     # taper the ends
         off = amp * env * math.sin(2.0 * math.pi * waves * t + phase)
-        pts.append((bx + nx * off, by + ny * off))
+        px = bx + nx * off
+        py = by + ny * off
+
+        # optional loop: insert a small circle where t crosses loop_at
+        if loop_at is not None and abs(t - loop_at) < (0.5 / samples):
+            for a in range(0, 361, 20):
+                ang = math.radians(a)
+                pts.append((px + loop_r * math.cos(ang) - loop_r,
+                            py + loop_r * math.sin(ang)))
+        pts.append((px, py))
     return pts
 
 
-def _simple_connector(c, p0, p3, sx, waves=2.5, amp=0.08 * inch, phase=0.0):
-    """A gently wiggly tendril from p0 to p3."""
-    pts = _squiggle_points(p0, p3, waves=waves, amp=amp, phase=phase)
+def _simple_connector(c, p0, p3, sx, phase=0.0, loop_at=None):
+    """A gently meandering tendril from p0 to p3 (few, lazy waves)."""
+    pts = _tendril_points(p0, p3, waves=1.5, amp=0.24 * inch,
+                          phase=phase, loop_at=loop_at)
     _catmull_rom(c, pts)
 
 
-def _frolicky_connector(c, p0, p3, sx, waves=2.5, amp=0.13 * inch, phase=0.0):
-    """A more frolicky, multi-wave tendril from p0 to p3."""
-    pts = _squiggle_points(p0, p3, waves=waves, amp=amp, phase=phase)
+def _frolicky_connector(c, p0, p3, sx, phase=0.0, loop_at=0.5):
+    """A loopier tendril: a touch more wander plus a little curl."""
+    pts = _tendril_points(p0, p3, waves=2.0, amp=0.30 * inch,
+                          phase=phase, loop_at=loop_at)
     _catmull_rom(c, pts)
 
 
@@ -148,8 +157,8 @@ def draw_bezier_connectors(c, cx, cy, pluto_d=2.5, n=32, **kw):
     step = 2.0 * math.pi / n
 
     c.saveState()
-    c.setStrokeColor(Color(0.85, 0.20, 0.15))   # red, like the sketch
-    c.setLineWidth(1.0)
+    c.setStrokeColor(Color(0.35, 0.35, 0.35))   # pencil gray
+    c.setLineWidth(0.8)
     for it in items:
         theta = (it["idx"] + 0.5) * step
         # start on the Pluto orbit for this subsector
@@ -157,11 +166,13 @@ def draw_bezier_connectors(c, cx, cy, pluto_d=2.5, n=32, **kw):
         # end at the rectangle's inner edge
         p3 = (it["rx"] - it["sx"] * it["w"], it["ry"])
         day = it["idx"] + 1
-        phase = (it["idx"] * 1.7) % (2.0 * math.pi)   # vary each tendril
+        phase = (it["idx"] * 2.3) % (2.0 * math.pi)   # vary each tendril
+        # sprinkle a few loops for organic, hand-drawn variety
+        loop = 0.45 + 0.1 * ((it["idx"] % 3) - 1) if (it["idx"] % 4 == 0) else None
         if day in FROLICKY_DAYS:
-            _frolicky_connector(c, p0, p3, it["sx"], phase=phase)
+            _frolicky_connector(c, p0, p3, it["sx"], phase=phase, loop_at=loop or 0.5)
         else:
-            _simple_connector(c, p0, p3, it["sx"], phase=phase)
+            _simple_connector(c, p0, p3, it["sx"], phase=phase, loop_at=loop)
     c.restoreState()
 
 
