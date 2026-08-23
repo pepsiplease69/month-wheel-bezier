@@ -13,16 +13,22 @@ Connector styles:
   * 12 & 6 o'clock  -> vertical drop with a little loop
   * swapped pairs   -> cross into a gentle S (8/9, 24/25, 1/32, 16/17)
 
+Paper / trimming (--paper):
+  * a5      -> page IS A5, edge-to-edge (no trim marks)
+  * letter  -> page is US Letter (landscape), wheel centered, with an A5
+               TRIM rectangle + corner crop marks. Print at 100% (actual
+               size, no "fit to page") then cut along the box to get A5.
+
 Usage:
-  python month-wheel-bezier_24.py --landing on
-  python month-wheel-bezier_24.py --landing between --output sleep_between.pdf
+  python month-wheel-bezier_25.py --landing on --paper letter
+  python month-wheel-bezier_25.py --landing between --paper a5 --output sleep.pdf
 """
 
 import argparse
 import math
 
 from reportlab.pdfgen import canvas
-from reportlab.lib.pagesizes import A5, landscape
+from reportlab.lib.pagesizes import A5, letter, landscape
 from reportlab.lib.units import inch
 from reportlab.lib.colors import Color
 
@@ -36,6 +42,50 @@ def draw_dotted_ellipse(c, cx, cy, major_in=4.0, minor_in=3.5):
     c.setLineWidth(0.6)
     c.setDash(1, 3)
     c.ellipse(cx - a, cy - b, cx + a, cy + b, stroke=1, fill=0)
+    c.restoreState()
+
+
+def draw_trim_border(c, cx, cy, trim_w, trim_h, crop_marks=True,
+                     mark_len=0.25 * inch, mark_gap=0.06 * inch):
+    """Draw an A5 trim rectangle (+ corner crop marks) centered at (cx, cy).
+
+    The rectangle is exactly the A5 page size, so after printing at 100%
+    on the larger sheet you can cut along it to recover an A5 page. The
+    little corner ticks sit OUTSIDE the box (they get trimmed away) so they
+    don't mark the finished page.
+    """
+    x0, y0 = cx - trim_w / 2.0, cy - trim_h / 2.0
+    x1, y1 = cx + trim_w / 2.0, cy + trim_h / 2.0
+
+    # The trim line itself: faint dashed rectangle.
+    c.saveState()
+    c.setStrokeColor(Color(0.55, 0.55, 0.55))
+    c.setLineWidth(0.5)
+    c.setDash(2, 2)
+    c.rect(x0, y0, trim_w, trim_h, stroke=1, fill=0)
+    c.restoreState()
+
+    if not crop_marks:
+        return
+
+    # Corner crop marks: two short solid ticks pointing outward per corner.
+    c.saveState()
+    c.setStrokeColor(Color(0.0, 0.0, 0.0))
+    c.setLineWidth(0.6)
+    c.setDash()  # solid
+    corners = [
+        (x0, y0, -1, -1),   # bottom-left
+        (x1, y0, +1, -1),   # bottom-right
+        (x0, y1, -1, +1),   # top-left
+        (x1, y1, +1, +1),   # top-right
+    ]
+    for mx, my, hx, vy in corners:
+        # horizontal tick extending outward
+        c.line(mx + hx * mark_gap, my,
+               mx + hx * (mark_gap + mark_len), my)
+        # vertical tick extending outward
+        c.line(mx, my + vy * mark_gap,
+               mx, my + vy * (mark_gap + mark_len))
     c.restoreState()
 
 
@@ -204,8 +254,8 @@ def draw_bezier_connectors(c, cx, cy, pluto_d=2.5, n=32, landing="on", **kw):
         span_y = abs(p3[1] - p0[1])
         if it["idx"] in ORBIT_SWAP:
             _swagger_connector(c, p0, p3)
-        elif span_x < 0.55 * span_y:
-            _loop_connector(c, p0, p3)
+        #elif span_x < 0.55 * span_y:
+        #    _loop_connector(c, p0, p3)
         else:
             _swagger_connector(c, p0, p3)
     c.restoreState()
@@ -229,9 +279,22 @@ def draw_day_numbers(c, cx, cy, neptune_d=2.0, pluto_d=2.5, n=32,
 
 
 def create_a5_concentric_circles(filename="blank_a5_landscape.pdf",
-                                 landing="on"):
-    """Landscape A5 (210 x 148 mm) month-wheel."""
-    page_size = landscape(A5)
+                                 landing="on", paper="letter"):
+    """Landscape A5 month-wheel.
+
+    paper:
+      "a5"     -> page IS A5 (edge-to-edge, no trim marks)
+      "letter" -> page is US Letter landscape; A5 wheel is centered with a
+                  trim rectangle + crop marks so you can cut it down to A5.
+    """
+    a5_size = landscape(A5)              # (210mm x 148mm) -> the trim box
+    trim_w, trim_h = a5_size
+
+    if paper == "letter":
+        page_size = landscape(letter)   # 11 x 8.5 in sheet
+    else:
+        page_size = a5_size
+
     width, height = page_size
     cx, cy = width / 2.0, height / 2.0
     c = canvas.Canvas(filename, pagesize=page_size)
@@ -248,9 +311,14 @@ def create_a5_concentric_circles(filename="blank_a5_landscape.pdf",
                          rect_w_in=1.25, rect_h_in=0.25, gap_in=0.25, n=32)
     draw_day_numbers(c, cx, cy, neptune_d=2.0, pluto_d=2.5, n=32)
 
+    # Trim rectangle + crop marks only make sense on the oversized sheet.
+    if paper == "letter":
+        draw_trim_border(c, cx, cy, trim_w, trim_h)
+
     c.showPage()
     c.save()
-    print(f"Created month-wheel PDF: {filename}  (landing={landing})")
+    print(f"Created month-wheel PDF: {filename}  "
+          f"(landing={landing}, paper={paper})")
 
 
 def main():
@@ -262,12 +330,18 @@ def main():
              "(sector midpoints) or 'between' dates (sector borderlines). "
              "Default: on")
     parser.add_argument(
+        "--paper", choices=["a5", "letter"], default="letter",
+        help="Sheet size. 'a5' = edge-to-edge A5. 'letter' = US Letter "
+             "landscape with an A5 trim box + crop marks (print at 100%%, "
+             "then cut to A5). Default: letter")
+    parser.add_argument(
         "--output", default=None,
-        help="Output PDF filename. Default: sleep_wheel_<landing>.pdf")
+        help="Output PDF filename. Default: sleep_wheel_<landing>_<paper>.pdf")
     args = parser.parse_args()
 
-    out = args.output or f"sleep_wheel_{args.landing}.pdf"
-    create_a5_concentric_circles(filename=out, landing=args.landing)
+    out = args.output or f"sleep_wheel_{args.landing}_{args.paper}.pdf"
+    create_a5_concentric_circles(filename=out, landing=args.landing,
+                                 paper=args.paper)
 
 
 if __name__ == "__main__":
