@@ -200,39 +200,72 @@ def _tendril_points(p0, p3, waves=1.6, amp=0.28 * inch, samples=90,
     return pts
 
 
-def _swagger_controls(p0, p3, center, k_frac=1.25, k_min=14.0,
-                      k_rad_frac=0.4, k_rad_min=12.0):
+def _swagger_controls(p0, p3, center=None, k_frac=1.25, k_min=14.0,
+                      radial_exp=3.0):
     """Control points for a swagger from p3 (box) -> p0 (orbit).
 
-    c1 (near the box)   : horizontal, so the curve leaves the rectangle flat.
-    c2 (near the orbit) : placed along the RADIAL line (center -> p0) so the
-                          Bezier's tangent at p0 is parallel to the sun-spoke
-                          (radial angle of incidence), never tangent to the
-                          orbit.
+    c1 (near the box)  : horizontal, so the curve leaves the rectangle flat
+                         and keeps the S-swagger character everywhere.
+
+    c2 (near the orbit): PARTIAL radial adoption. We blend the landing tangent
+                         between HORIZONTAL (the original look) and RADIAL
+                         (parallel to the sun-spoke) using a weight w that
+                         depends on how vertical the spoke is at p0:
+
+                             w = |cos(theta)| ** radial_exp
+
+                         - Side lanes (3 & 9 o'clock): spoke ~horizontal, so
+                           horizontal landing is already radial -> w ~ 0,
+                           S-curves are left UNTOUCHED.
+                         - Top/bottom (12 & 6 o'clock): spoke ~vertical, where
+                           a horizontal landing would skim tangent -> w ~ 1,
+                           so those problematic days swing to a radial landing.
+
+                         radial_exp sharpens the transition: higher = radial
+                         is confined to a tighter band around 12/6 o'clock.
+                         center=None reproduces the pure-horizontal behavior.
     """
-    # c1: horizontal exit from the box (unchanged character).
     dirx = 1.0 if (p0[0] - p3[0]) >= 0 else -1.0
     k = max(k_frac * abs(p0[0] - p3[0]), k_min)
     c1 = (p3[0] + dirx * k, p3[1])
 
-    # c2: radial approach. Unit vector pointing OUTWARD from the sun to p0;
-    # putting c2 outside p0 makes the curve arrive heading radially inward.
+    # Horizontal landing tangent (original): the curve arrives moving in +dirx.
+    h_dir = (dirx, 0.0)
+
+    if center is None:
+        c2 = (p0[0] - dirx * k, p0[1])
+        return c1, c2
+
+    # Radial geometry at the landing point.
     cx, cy = center
-    ux, uy = p0[0] - cx, p0[1] - cy
+    ux, uy = p0[0] - cx, p0[1] - cy          # outward radial
     ulen = math.hypot(ux, uy) or 1.0
     ux, uy = ux / ulen, uy / ulen
-    dist = math.hypot(p0[0] - p3[0], p0[1] - p3[1])
-    k_rad = max(k_rad_frac * dist, k_rad_min)
-    c2 = (p0[0] + ux * k_rad, p0[1] + uy * k_rad)
+    r_dir = (-ux, -uy)                         # radial INWARD (toward the sun)
+
+    # Blend weight: 1 where the spoke is vertical (top/bottom), 0 on the sides.
+    w = abs(uy) ** radial_exp
+
+    # Blend the landing DIRECTION, then re-normalize.
+    bx = (1.0 - w) * h_dir[0] + w * r_dir[0]
+    by = (1.0 - w) * h_dir[1] + w * r_dir[1]
+    blen = math.hypot(bx, by) or 1.0
+    bx, by = bx / blen, by / blen
+
+    # Tangent at the cubic's endpoint p0 is along (p0 - c2); place c2 behind p0.
+    c2 = (p0[0] - bx * k, p0[1] - by * k)
     return c1, c2
 
 
-def _swagger_connector(c, p0, p3, center, k_frac=1.25, k_min=14.0):
+def _swagger_connector(c, p0, p3, center=None, k_frac=1.25, k_min=14.0,
+                       radial_exp=3.0):
     """S-swagger from the rectangle (p3) into the Pluto orbit (p0).
 
-    Lands radially (parallel to the sun-spoke) thanks to _swagger_controls.
+    Partial radial adoption: side S-curves stay horizontal; only the
+    top/bottom (problematic) days swing to a radial landing. See
+    _swagger_controls for the blend details.
     """
-    c1, c2 = _swagger_controls(p0, p3, center, k_frac, k_min)
+    c1, c2 = _swagger_controls(p0, p3, center, k_frac, k_min, radial_exp)
     c.bezier(p3[0], p3[1], c1[0], c1[1], c2[0], c2[1], p0[0], p0[1])
 
 
@@ -249,12 +282,20 @@ ORBIT_SWAP = {7: 8, 8: 7, 23: 24, 24: 23,
               0: 31, 31: 0, 15: 16, 16: 15}
 
 
-def draw_bezier_connectors(c, cx, cy, pluto_d=2.5, n=32, landing="on", **kw):
+def draw_bezier_connectors(c, cx, cy, pluto_d=2.5, n=32, landing="on",
+                           radial_exp=5.0, **kw):
     """Connectors from each subsector to its box.
 
     landing:
       "on"      -> land at sector MIDPOINT (aligned with the day number)
       "between" -> land at the BORDERLINE between two dates (sector edge)
+
+    radial_exp:
+      Sharpness of the PARTIAL radial adoption on swagger landings. The blend
+      weight is |cos(theta)| ** radial_exp, so higher values confine the
+      radial landing to a tighter band around 12 & 6 o'clock (the problematic
+      near-vertical days) and leave the side S-curves untouched. See
+      _swagger_controls.
     """
     r_pluto = (pluto_d / 2.0) * inch
     items = belt_rectangle_layout(cx, cy, n=n, **kw)
@@ -274,11 +315,11 @@ def draw_bezier_connectors(c, cx, cy, pluto_d=2.5, n=32, landing="on", **kw):
         span_x = abs(p3[0] - p0[0])
         span_y = abs(p3[1] - p0[1])
         if it["idx"] in ORBIT_SWAP:
-            _swagger_connector(c, p0, p3, (cx, cy))
-        elif span_x < 0.55 * span_y:
-            _loop_connector(c, p0, p3)
+            _swagger_connector(c, p0, p3, (cx, cy), radial_exp=radial_exp)
+        #elif span_x < 0.55 * span_y:
+        #    _loop_connector(c, p0, p3)
         else:
-            _swagger_connector(c, p0, p3, (cx, cy))
+            _swagger_connector(c, p0, p3, (cx, cy), radial_exp=radial_exp)
     c.restoreState()
 
 
@@ -300,7 +341,8 @@ def draw_day_numbers(c, cx, cy, neptune_d=2.0, pluto_d=2.5, n=32,
 
 
 def create_a5_concentric_circles(filename="blank_a5_landscape.pdf",
-                                 landing="on", paper="letter"):
+                                 landing="on", paper="letter",
+                                 radial_exp=5.0):
     """Landscape A5 month-wheel.
 
     paper:
@@ -326,6 +368,7 @@ def create_a5_concentric_circles(filename="blank_a5_landscape.pdf",
     draw_dotted_ellipse(c, cx, cy, major_in=4.0, minor_in=3.5)
     draw_subsector_lines(c, cx, cy, inner_d=1.0, outer_d=2.5, n_divisions=32)
     draw_bezier_connectors(c, cx, cy, pluto_d=2.5, n=32, landing=landing,
+                           radial_exp=radial_exp,
                            major_in=4.0, minor_in=3.5,
                            rect_w_in=1.25, rect_h_in=0.25, gap_in=0.25)
     draw_belt_rectangles(c, cx, cy, major_in=4.0, minor_in=3.5,
@@ -356,13 +399,19 @@ def main():
              "landscape with an A5 trim box + crop marks (print at 100%%, "
              "then cut to A5). Default: letter")
     parser.add_argument(
+        "--radial-sharpness", type=float, default=5.0, dest="radial_exp",
+        help="Sharpness of the partial radial landing (blend weight is "
+             "|cos(theta)| ** sharpness). Higher = radial confined to a "
+             "tighter band around 12 & 6 o'clock, leaving the side S-curves "
+             "untouched. 0 = pure horizontal (old look). Default: 5.0")
+    parser.add_argument(
         "--output", default=None,
         help="Output PDF filename. Default: sleep_wheel_<landing>_<paper>.pdf")
     args = parser.parse_args()
 
     out = args.output or f"sleep_wheel_{args.landing}_{args.paper}.pdf"
     create_a5_concentric_circles(filename=out, landing=args.landing,
-                                 paper=args.paper)
+                                 paper=args.paper, radial_exp=args.radial_exp)
 
 
 if __name__ == "__main__":
