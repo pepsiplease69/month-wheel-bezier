@@ -134,17 +134,29 @@ def _tendril_points(p0, p3, waves=1.6, amp=0.28 * inch, samples=90,
     return pts
 
 
-def _simple_connector(c, p0, p3, sx, phase=0.0, loop_at=None):
-    """A single gentle-bend tendril that stays in its own lane."""
-    pts = _tendril_points(p0, p3, waves=0.5, amp=0.10 * inch,
-                          phase=phase, loop_at=loop_at)
-    _catmull_rom(c, pts)
+def _swagger_connector(c, p0, p3, k_frac=1.25, k_min=14.0):
+    """Horizontal S-swagger from the rectangle (p3) into the Pluto orbit (p0).
+
+    Both ends use HORIZONTAL tangents, so the curve leaves the box sideways,
+    gently swaggers, and settles horizontally onto the orbit -- no diagonal.
+    """
+    p0x, p0y = p0
+    p3x, p3y = p3
+    dirx = 1.0 if (p0x - p3x) >= 0 else -1.0
+    k = max(k_frac * abs(p0x - p3x), k_min)
+    c.bezier(p3x, p3y,
+             p3x + dirx * k, p3y,      # leave the box horizontally
+             p0x - dirx * k, p0y,      # arrive on the orbit horizontally
+             p0x, p0y)
 
 
-def _frolicky_connector(c, p0, p3, sx, phase=0.0, loop_at=0.5):
-    """Same lazy single bend, but with one little loop along the way."""
-    pts = _tendril_points(p0, p3, waves=0.5, amp=0.12 * inch,
-                          phase=phase, loop_at=loop_at)
+def _loop_connector(c, p0, p3, loop_r=0.13 * inch):
+    """For vertically-aligned lanes (12 & 6 o'clock): the box sits straight
+    above/below its orbit target, so a horizontal swagger is impossible.
+    Instead drop mostly vertically and tie a single little loop en route.
+    """
+    pts = _tendril_points(p3, p0, waves=0.0, amp=0.0, phase=0.0,
+                          taper=False, loop_at=0.5, loop_r=loop_r)
     _catmull_rom(c, pts)
 
 
@@ -166,13 +178,14 @@ def draw_bezier_connectors(c, cx, cy, pluto_d=2.5, n=32, **kw):
         # end at the rectangle's inner edge
         p3 = (it["rx"] - it["sx"] * it["w"], it["ry"])
         day = it["idx"] + 1
-        phase = (it["idx"] * 2.3) % (2.0 * math.pi)   # slight per-lane variety
-        # only a handful of tendrils get a little loop, like the sketch
-        loop = 0.55 if day in (17, 20, 24) else None
-        if loop is not None:
-            _frolicky_connector(c, p0, p3, it["sx"], phase=phase, loop_at=loop)
+        # Decide horizontal-swagger vs. loop based on the lane geometry:
+        # if the box is (nearly) straight above/below its orbit point, loop.
+        span_x = abs(p3[0] - p0[0])
+        span_y = abs(p3[1] - p0[1])
+        if span_x < 0.55 * span_y:
+            _loop_connector(c, p0, p3)
         else:
-            _simple_connector(c, p0, p3, it["sx"], phase=phase)
+            _swagger_connector(c, p0, p3)
     c.restoreState()
 
 
