@@ -200,18 +200,39 @@ def _tendril_points(p0, p3, waves=1.6, amp=0.28 * inch, samples=90,
     return pts
 
 
-def _swagger_controls(p0, p3, k_frac=1.25, k_min=14.0):
-    """Return the two horizontal control points for a swagger from p3 -> p0."""
+def _swagger_controls(p0, p3, center, k_frac=1.25, k_min=14.0,
+                      k_rad_frac=0.4, k_rad_min=12.0):
+    """Control points for a swagger from p3 (box) -> p0 (orbit).
+
+    c1 (near the box)   : horizontal, so the curve leaves the rectangle flat.
+    c2 (near the orbit) : placed along the RADIAL line (center -> p0) so the
+                          Bezier's tangent at p0 is parallel to the sun-spoke
+                          (radial angle of incidence), never tangent to the
+                          orbit.
+    """
+    # c1: horizontal exit from the box (unchanged character).
     dirx = 1.0 if (p0[0] - p3[0]) >= 0 else -1.0
     k = max(k_frac * abs(p0[0] - p3[0]), k_min)
     c1 = (p3[0] + dirx * k, p3[1])
-    c2 = (p0[0] - dirx * k, p0[1])
+
+    # c2: radial approach. Unit vector pointing OUTWARD from the sun to p0;
+    # putting c2 outside p0 makes the curve arrive heading radially inward.
+    cx, cy = center
+    ux, uy = p0[0] - cx, p0[1] - cy
+    ulen = math.hypot(ux, uy) or 1.0
+    ux, uy = ux / ulen, uy / ulen
+    dist = math.hypot(p0[0] - p3[0], p0[1] - p3[1])
+    k_rad = max(k_rad_frac * dist, k_rad_min)
+    c2 = (p0[0] + ux * k_rad, p0[1] + uy * k_rad)
     return c1, c2
 
 
-def _swagger_connector(c, p0, p3, k_frac=1.25, k_min=14.0):
-    """Horizontal S-swagger from the rectangle (p3) into the Pluto orbit (p0)."""
-    c1, c2 = _swagger_controls(p0, p3, k_frac, k_min)
+def _swagger_connector(c, p0, p3, center, k_frac=1.25, k_min=14.0):
+    """S-swagger from the rectangle (p3) into the Pluto orbit (p0).
+
+    Lands radially (parallel to the sun-spoke) thanks to _swagger_controls.
+    """
+    c1, c2 = _swagger_controls(p0, p3, center, k_frac, k_min)
     c.bezier(p3[0], p3[1], c1[0], c1[1], c2[0], c2[1], p0[0], p0[1])
 
 
@@ -253,11 +274,11 @@ def draw_bezier_connectors(c, cx, cy, pluto_d=2.5, n=32, landing="on", **kw):
         span_x = abs(p3[0] - p0[0])
         span_y = abs(p3[1] - p0[1])
         if it["idx"] in ORBIT_SWAP:
-            _swagger_connector(c, p0, p3)
-        #elif span_x < 0.55 * span_y:
-        #    _loop_connector(c, p0, p3)
+            _swagger_connector(c, p0, p3, (cx, cy))
+        elif span_x < 0.55 * span_y:
+            _loop_connector(c, p0, p3)
         else:
-            _swagger_connector(c, p0, p3)
+            _swagger_connector(c, p0, p3, (cx, cy))
     c.restoreState()
 
 
