@@ -1,6 +1,12 @@
 #!/usr/bin/env python3
 """Landscape A5 month-wheel: concentric orbits, Kuiper belt, subsectors,
-day numbers, belt rectangles, and horizontal S-curve Bezier connectors."""
+day numbers, belt rectangles, and horizontal S-curve Bezier connectors.
+
+The four diagonal "corner" day-groups get a frolicky double-inflection
+connector (smooth, hand-drawn feel, no sharp corners):
+    upper-right  2-5,  lower-right 12-15,
+    lower-left  17-20, upper-left  27-30.
+"""
 
 import math
 
@@ -8,6 +14,10 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import A5, landscape
 from reportlab.lib.units import inch
 from reportlab.lib.colors import Color
+
+# Day numbers (1-based) that get the extra-wiggly connector.
+FROLICKY_DAYS = set(range(2, 6)) | set(range(12, 16)) \
+    | set(range(17, 21)) | set(range(27, 31))
 
 
 def draw_dotted_ellipse(c, cx, cy, major_in=4.0, minor_in=3.5):
@@ -39,13 +49,7 @@ def draw_subsector_lines(c, cx, cy, inner_d=1.0, outer_d=2.5, n_divisions=32):
 
 def belt_rectangle_layout(cx, cy, major_in=4.0, minor_in=3.5,
                           rect_w_in=1.25, rect_h_in=0.25, gap_in=0.25, n=32):
-    """Return placement data for the n belt rectangles (two side columns).
-
-    Each item: idx (0-based subsector), sx (+1 right / -1 left),
-    rx, ry (rectangle center), w, h (half sizes).
-    Mapping: right column top->bottom = subsectors 1..16;
-             left column top->bottom  = subsectors 32..17.
-    """
+    """Return placement data for the n belt rectangles (two side columns)."""
     a = (major_in / 2.0) * inch
     b = (minor_in / 2.0) * inch
     w = (rect_w_in / 2.0) * inch
@@ -81,12 +85,48 @@ def draw_belt_rectangles(c, cx, cy, **kw):
     c.restoreState()
 
 
-def draw_bezier_connectors(c, cx, cy, pluto_d=2.5, n=32, handle=0.45, **kw):
-    """S-curve Bezier connectors from each subsector's Pluto-orbit edge to its
-    rectangle's inner edge.
+def _simple_connector(c, p0, p3, sx, handle=0.45):
+    """Single smooth S: horizontal tangents at both ends."""
+    p0x, p0y = p0
+    p3x, p3y = p3
+    k = max(handle * abs(p3x - p0x), 10.0)
+    c.bezier(p0x, p0y,
+             p0x + sx * k, p0y,
+             p3x - sx * k, p3y,
+             p3x, p3y)
 
-    Control handles are purely horizontal, so the curve leaves and arrives
-    horizontally -> the S/Z spine runs horizontally (never diagonal).
+
+def _frolicky_connector(c, p0, p3, sx, handle=0.6, wiggle=0.18 * inch):
+    """Smooth double-inflection S: two chained cubics with horizontal tangents
+    at the start, the middle waypoint, and the end -> no sharp corners, but a
+    wander-y, hand-drawn feel. The mid waypoint is nudged vertically so the
+    path loops out before settling into the box."""
+    p0x, p0y = p0
+    p3x, p3y = p3
+
+    mx = (p0x + p3x) / 2.0
+    my = (p0y + p3y) / 2.0
+    # push the mid waypoint away from the wheel center for a frolicky bulge
+    my += wiggle if p3y >= 0 else -wiggle
+
+    k1 = max(handle * abs(mx - p0x), 10.0)
+    k2 = max(handle * abs(p3x - mx), 10.0)
+
+    # segment 1: p0 -> mid  (horizontal tangents both ends)
+    c.bezier(p0x, p0y,
+             p0x + sx * k1, p0y,
+             mx - sx * k1, my,
+             mx, my)
+    # segment 2: mid -> p3  (horizontal tangents both ends -> smooth join)
+    c.bezier(mx, my,
+             mx + sx * k2, my,
+             p3x - sx * k2, p3y,
+             p3x, p3y)
+
+
+def draw_bezier_connectors(c, cx, cy, pluto_d=2.5, n=32, **kw):
+    """S-curve connectors from each subsector's Pluto-orbit edge to its box.
+    Corner day-groups (FROLICKY_DAYS) get the wander-y double-inflection path.
     """
     r_pluto = (pluto_d / 2.0) * inch
     items = belt_rectangle_layout(cx, cy, n=n, **kw)
@@ -96,18 +136,21 @@ def draw_bezier_connectors(c, cx, cy, pluto_d=2.5, n=32, handle=0.45, **kw):
     c.setStrokeColor(Color(0.45, 0.45, 0.45))
     c.setLineWidth(0.6)
     for it in items:
-        theta = (it["idx"] + 0.5) * step             # subsector center angle
-        # start: point on the Pluto orbit for this subsector
-        p0x = cx + r_pluto * math.sin(theta)
-        p0y = cy + r_pluto * math.cos(theta)
-        # end: inner edge (toward the sun) of the rectangle
-        p3x = it["rx"] - it["sx"] * it["w"]
-        p3y = it["ry"]
-        # horizontal control handles (magnitude scales with the horizontal span)
-        k = max(handle * abs(p3x - p0x), 10.0)
-        p1x, p1y = p0x + it["sx"] * k, p0y
-        p2x, p2y = p3x - it["sx"] * k, p3y
-        c.bezier(p0x, p0y, p1x, p1y, p2x, p2y, p3x, p3y)
+        theta = (it["idx"] + 0.5) * step
+        p0 = (cx + r_pluto * math.sin(theta), cy + r_pluto * math.cos(theta))
+        p3 = (it["rx"] - it["sx"] * it["w"], it["ry"])
+        day = it["idx"] + 1
+        # translate so wiggle sign uses page-relative y (above/below center)
+        p0_rel = (p0[0], p0[1] - cy)
+        p3_rel = (p3[0], p3[1] - cy)
+        if day in FROLICKY_DAYS:
+            # draw in center-relative coords for the wiggle sign, then offset
+            c.saveState()
+            c.translate(0, cy)
+            _frolicky_connector(c, p0_rel, p3_rel, it["sx"])
+            c.restoreState()
+        else:
+            _simple_connector(c, p0, p3, it["sx"])
     c.restoreState()
 
 
@@ -145,7 +188,7 @@ def create_a5_concentric_circles(filename: str = "blank_a5_landscape.pdf") -> No
     # --- 32 subsector spokes (Saturn -> Pluto) ---
     draw_subsector_lines(c, cx, cy, inner_d=1.0, outer_d=2.5, n_divisions=32)
 
-    # --- S-curve connectors (drawn under the rectangles) ---
+    # --- Connectors (drawn under the rectangles) ---
     draw_bezier_connectors(c, cx, cy, pluto_d=2.5, n=32,
                            major_in=4.0, minor_in=3.5,
                            rect_w_in=1.25, rect_h_in=0.25, gap_in=0.25)
