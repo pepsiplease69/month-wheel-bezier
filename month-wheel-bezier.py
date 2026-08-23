@@ -276,6 +276,50 @@ def _loop_connector(c, p0, p3, loop_r=0.13 * inch):
     _catmull_rom(c, pts)
 
 
+def _landing_direction(p0, p3, center, radial_exp):
+    """Unit vector of TRAVEL at p0 (the direction the curve is heading as it
+    arrives at the Pluto orbit). Equals normalize(p0 - c2)."""
+    _, c2 = _swagger_controls(p0, p3, center, radial_exp=radial_exp)
+    dx, dy = p0[0] - c2[0], p0[1] - c2[1]
+    d = math.hypot(dx, dy) or 1.0
+    return dx / d, dy / d
+
+
+def draw_landing_arrowhead(c, p0, p3, center, radial_exp,
+                           length=0.09 * inch, width=0.06 * inch):
+    """Filled black arrowhead with its TIP on the Pluto orbit (p0), pointing
+    in the curve's direction of travel (inward). Used for --landing on."""
+    dx, dy = _landing_direction(p0, p3, center, radial_exp)
+    # perpendicular to the travel direction
+    px, py = -dy, dx
+    # base sits 'length' behind the tip, wings splay out by 'width'/2
+    bx, by = p0[0] - dx * length, p0[1] - dy * length
+    left = (bx + px * width / 2.0, by + py * width / 2.0)
+    right = (bx - px * width / 2.0, by - py * width / 2.0)
+
+    c.saveState()
+    c.setFillColor(Color(0.0, 0.0, 0.0))
+    c.setStrokeColor(Color(0.0, 0.0, 0.0))
+    c.setLineWidth(0.3)
+    path = c.beginPath()
+    path.moveTo(p0[0], p0[1])
+    path.lineTo(*left)
+    path.lineTo(*right)
+    path.close()
+    c.drawPath(path, stroke=1, fill=1)
+    c.restoreState()
+
+
+def draw_contact_dot(c, p0, radius=0.028 * inch):
+    """Small filled black dot marking where the spoke, the Bezier, and the
+    Pluto orbit all meet. Used for --landing between (sector borderlines)."""
+    c.saveState()
+    c.setFillColor(Color(0.0, 0.0, 0.0))
+    c.setStrokeColor(Color(0.0, 0.0, 0.0))
+    c.circle(p0[0], p0[1], radius, stroke=0, fill=1)
+    c.restoreState()
+
+
 # Cross adjacent boxes so their connectors form a gentle S (idx-based):
 #   day 8 <-> day 9,  day 24 <-> day 25,  day 1 <-> day 32,  day 16 <-> day 17
 ORBIT_SWAP = {7: 8, 8: 7, 23: 24, 24: 23,
@@ -312,14 +356,17 @@ def draw_bezier_connectors(c, cx, cy, pluto_d=2.5, n=32, landing="on",
         p0 = (cx + r_pluto * math.sin(theta), cy + r_pluto * math.cos(theta))
         p3 = (it["rx"] - it["sx"] * it["w"], it["ry"])
 
-        span_x = abs(p3[0] - p0[0])
-        span_y = abs(p3[1] - p0[1])
-        if it["idx"] in ORBIT_SWAP:
-            _swagger_connector(c, p0, p3, (cx, cy), radial_exp=radial_exp)
-        #elif span_x < 0.55 * span_y:
-        #    _loop_connector(c, p0, p3)
+        # Swagger connector for every day (the _loop_connector branch is
+        # retired; swagger + partial-radial landing handles 12 & 6 o'clock).
+        _swagger_connector(c, p0, p3, (cx, cy), radial_exp=radial_exp)
+
+        # Contact marker at the Pluto orbit, style depends on landing mode:
+        #   on      -> arrowhead pointing inward at the date's midpoint
+        #   between -> filled dot at the borderline contact point
+        if landing == "on":
+            draw_landing_arrowhead(c, p0, p3, (cx, cy), radial_exp)
         else:
-            _swagger_connector(c, p0, p3, (cx, cy), radial_exp=radial_exp)
+            draw_contact_dot(c, p0)
     c.restoreState()
 
 
