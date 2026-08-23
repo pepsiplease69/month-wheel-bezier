@@ -350,10 +350,20 @@ ORBIT_SWAP = {7: 8, 8: 7, 23: 24, 24: 23,
 #     curl_deg      -> rotate the landing tangent to open a round loop
 # Tune or extend this dict to add/adjust loops; empty {} disables the effect.
 LOOP_CURLS = {
+    # --- top-right cluster (upper right quadrant) ---
     3: (1.20, -16.0),   # 2-3 border  (near-vertical -> negative curl)
     5: (1.10,  13.0),   # 4-5 border
     6: (1.15,  15.0),   # 5-6 border
     # day 4 (3-4 border) loops naturally; no entry needed
+
+    # --- bottom-left cluster: 180-degree MIRROR of the top-right ---
+    # Partner mapping (rotational): 3->19, 4->20, 5->21, 6->22. Day 20 is
+    # induced because, unlike its partner day 4, it does not loop naturally
+    # (the belt row stagger breaks perfect symmetry).
+    19: (1.20, -16.0),  # 18-19 border  (mirror of day 3)
+    20: (1.10,  12.0),  # 19-20 border  (mirror of day 4, induced)
+    21: (1.10, -13.0),  # 20-21 border  (mirror of day 5)
+    22: (1.15, -15.0),  # 21-22 border  (mirror of day 6)
 }
 
 
