@@ -503,106 +503,143 @@ def draw_wheel(c, cx, cy, landing="on", radial_exp=5.0):
     draw_day_numbers(c, cx, cy, neptune_d=2.0, pluto_d=2.5, n=32)
 
 
-# ---- 12-month booklet ------------------------------------------------------
-# Physical build: each US Letter PORTRAIT sheet is printed single-sided with
-# TWO upright A5 wheels (top + bottom), folded once at the horizontal middle
-# (the SPINE, same as a5-fold-in-letter) and trimmed on the RIGHT only. Folding
-# turns each sheet into ONE double-sided A5 leaf:
-#     bottom wheel -> FRONT (odd page)   top wheel -> BACK (even page)
-# Stack all 14 folded leaves, bind at the top fold = a top-flip A5 booklet.
-# Facing spreads (open book) pair the BACK of leaf n with the FRONT of leaf
-# n+1, i.e. pages (2,3), (4,5)... = each month's sleep(top) + walk(bottom).
-# Both wheels stay upright: the fold + the flip-up cancel out to read correctly.
-MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
-          "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+# ---- 12-month SADDLE-STITCH booklet ----------------------------------------
+# Physical build (what you asked for):
+#   1. Print DUPLEX on US Letter, SHORT-EDGE flip.
+#   2. Trim each sheet's WIDTH down to A5 (8.27in) -- single RIGHT trim.
+#   3. FOLD each sheet once at the horizontal middle -> A5-wide x 5.5in tall
+#      (spine at top, a touch under A5's 5.83in height).
+#   4. NEST the folded sheets one inside another (sheet 1 outermost) and
+#      staple/sew the spine = a proper saddle-stitch booklet.
+#
+# 28 logical pages = 7 letter sheets (4 pages each). Imposition below places
+# each logical page on the right sheet/side/half with the right rotation so
+# that, after the fold + short-edge duplex, everything reads upright and the
+# pages fall in order 1..28.
+#
+# Calendar year starts in MARCH (Mar..Feb). 32 sectors are kept on every wheel
+# for symmetry; cross out the non-days by hand.
+MONTHS = ["Mar", "Apr", "May", "Jun", "Jul", "Aug",
+          "Sep", "Oct", "Nov", "Dec", "Jan", "Feb"]
+
+BOOKLET_PAGES_TOTAL = 28
 
 
 def _booklet_pages():
-    """1-indexed page schedule (index 0 unused, indices 1..28 are the pages).
+    """1-indexed page schedule (indices 1..28; index 0 unused).
 
-    Each entry is None (blank page) or a dict {month, kind, landing}. Layout:
-      p1 blank; p2..p25 = Jan..Dec each as (sleep=between, walk=on);
-      p26..p28 blank.
+    p1 blank; p2..p25 = Mar..Feb, each as sleep(between) then walk(on);
+    p26..p28 blank.
     """
-    pages = [None] * 29                      # indices 1..28 (0 unused)
+    pages = [None] * (BOOKLET_PAGES_TOTAL + 1)
     p = 2
     for m in MONTHS:
         pages[p] = {"month": m, "kind": "sleep", "landing": "between"}
         pages[p + 1] = {"month": m, "kind": "walk", "landing": "on"}
         p += 2
-    # p == 26 now; pages[1], pages[26], pages[27], pages[28] stay None (blank)
-    return pages
+    return pages                              # p1, p26, p27, p28 stay None
 
 
-def _page_tag(pno, spec):
-    "Short collation label for the waste strip (e.g. 'p3 Jan walk')."
-    if spec is None:
-        return f"p{pno} blank"
-    return f"p{pno} {spec['month']} {spec['kind']}"
+def _impose_saddle(total=BOOKLET_PAGES_TOTAL):
+    """Saddle-stitch imposition for a horizontal-fold, short-edge-duplex booklet.
 
+    Returns a list of sheets, each a dict with FRONT and BACK, and for each the
+    'bottom'/'top' logical page number plus its rotation (0 or 180).
 
-def _draw_waste_mark(c, x_trim, sheet_w, y, text):
-    """Tiny collation label in the RIGHT waste strip (cut away on trim).
-
-    Lives entirely to the RIGHT of the A5 trim line, so it never appears on the
-    finished page -- it only helps you collate the 14 sheets before trimming.
-    Rotated 90 to read up the narrow strip. Set marks=False to omit.
+    Derivation (spine at TOP, top half folds down behind, sheet 1 outermost):
+      FRONT: bottom = outer_low  (rot 0)    top = outer_high (rot 180)
+      BACK : bottom = inner_low  (rot 180)  top = inner_high (rot 180)
+    Both BACK halves are rot 180 because short-edge duplex vertically inverts
+    the back relative to the front.
     """
+    sheets = []
+    n_sheets = total // 4
+    for s in range(1, n_sheets + 1):
+        outer_low = 1 + 2 * (s - 1)
+        outer_high = total - 2 * (s - 1)
+        inner_low = 2 + 2 * (s - 1)
+        inner_high = total - 1 - 2 * (s - 1)
+        sheets.append({
+            "front": {"bottom": (outer_low, 0), "top": (outer_high, 180)},
+            "back":  {"bottom": (inner_low, 180), "top": (inner_high, 180)},
+        })
+    return sheets
+
+
+def _draw_wheel_slot(c, cx, cy, spec, radial_exp, rot180):
+    "Draw one wheel (or nothing, for a blank page) centered at (cx, cy)."
+    if spec is None:
+        return
+    if rot180:
+        c.saveState()
+        c.translate(cx, cy)
+        c.rotate(180)
+        c.translate(-cx, -cy)
+        draw_wheel(c, cx, cy, spec["landing"], radial_exp)
+        c.restoreState()
+    else:
+        draw_wheel(c, cx, cy, spec["landing"], radial_exp)
+
+
+def _draw_proof_slot(c, cx, cy, pno, spec, rot180):
+    "Big page number + up-arrow instead of a wheel, for a fold-test dummy."
+    label = "blank" if spec is None else f"{spec['month']} {spec['kind']}"
     c.saveState()
-    c.setFillColor(Color(0.6, 0.6, 0.6))
-    x = (x_trim + sheet_w) / 2.0
-    c.translate(x, y)
-    c.rotate(90)
-    c.setFont("Helvetica", 6)
-    c.drawCentredString(0, -2, text)
+    if rot180:
+        c.translate(cx, cy)
+        c.rotate(180)
+        c.translate(-cx, -cy)
+    c.setFillColor(Color(0.1, 0.1, 0.1))
+    c.setFont("Helvetica-Bold", 60)
+    c.drawCentredString(cx, cy, str(pno))
+    c.setFont("Helvetica", 12)
+    c.drawCentredString(cx, cy + 46, "^ up")          # points to page top
+    c.drawCentredString(cx, cy - 34, label)
     c.restoreState()
 
 
-def create_booklet(filename="sleep_wheel_booklet.pdf", radial_exp=5.0,
-                   marks=True):
-    """12-month A5 flip-booklet imposed on 14 US Letter portrait sheets.
+def _draw_booklet_furniture(c, a5_w, height):
+    "Fold spine at the middle + single right-side trim guide (shared by pages)."
+    draw_fold_line(c, 0.0, a5_w, height / 2.0)
+    draw_side_crop_marks(c, a5_w, 0.0, height)
 
-    Each sheet = one folded A5 leaf (fold spine at the horizontal middle, a
-    single RIGHT trim to A5 width 8.27in). Print single-sided at 100%, trim
-    every sheet's right edge, fold each on the FOLD line, stack in page order,
-    bind at the fold. 28 pages total (see _booklet_pages).
+
+def create_booklet(filename="sleep_wheel_booklet.pdf", radial_exp=5.0,
+                   proof=False):
+    """12-month A5 saddle-stitch booklet imposed on 7 US Letter sheets (duplex).
+
+    proof=True swaps the wheels for big page numbers so you can fold a blank
+    dummy and confirm the collation before printing the real thing.
     """
-    page_size = letter                        # portrait 8.5 x 11
-    width, height = page_size
+    width, height = letter                    # portrait 8.5 x 11
     a5_w = landscape(A5)[0]                    # 8.27 finished width
-    cx_wheel = a5_w / 2.0                      # center wheels in the A5 width
-    y_top, y_bottom = 3.0 * height / 4.0, height / 4.0
+    cx = a5_w / 2.0
+    y_bottom, y_top = height / 4.0, 3.0 * height / 4.0
 
     pages = _booklet_pages()
-    c = canvas.Canvas(filename, pagesize=page_size)
+    sheets = _impose_saddle()
+    c = canvas.Canvas(filename, pagesize=letter)
 
-    n_sheets = 14
-    for k in range(1, n_sheets + 1):
-        front_pno, back_pno = 2 * k - 1, 2 * k     # odd=front, even=back
-        bottom_spec, top_spec = pages[front_pno], pages[back_pno]
-
-        # top wheel = BACK/even page ; bottom wheel = FRONT/odd page
-        if top_spec is not None:
-            draw_wheel(c, cx_wheel, y_top, top_spec["landing"], radial_exp)
-        if bottom_spec is not None:
-            draw_wheel(c, cx_wheel, y_bottom, bottom_spec["landing"],
-                       radial_exp)
-
-        # Spine (fold) + single right-side trim, identical on every sheet.
-        draw_fold_line(c, 0.0, a5_w, height / 2.0)
-        draw_side_crop_marks(c, a5_w, 0.0, height)
-
-        if marks:
-            _draw_waste_mark(c, a5_w, width, y_top,
-                             _page_tag(back_pno, top_spec))
-            _draw_waste_mark(c, a5_w, width, y_bottom,
-                             _page_tag(front_pno, bottom_spec))
-
-        c.showPage()
+    for sheet in sheets:
+        for side in ("front", "back"):        # short-edge duplex order
+            slots = sheet[side]
+            (pb, rb) = slots["bottom"]
+            (pt, rt) = slots["top"]
+            if proof:
+                _draw_proof_slot(c, cx, y_bottom, pb, pages[pb], rb == 180)
+                _draw_proof_slot(c, cx, y_top, pt, pages[pt], rt == 180)
+            else:
+                _draw_wheel_slot(c, cx, y_bottom, pages[pb], radial_exp,
+                                 rb == 180)
+                _draw_wheel_slot(c, cx, y_top, pages[pt], radial_exp,
+                                 rt == 180)
+            _draw_booklet_furniture(c, a5_w, height)
+            c.showPage()
 
     c.save()
-    print(f"Created 12-month booklet PDF: {filename}  "
-          f"({n_sheets} letter sheets -> 28 A5 pages)")
+    kind = "PROOF (numbered)" if proof else "booklet"
+    print(f"Created 12-month saddle-stitch {kind}: {filename}  "
+          f"(7 letter sheets, duplex short-edge -> 28 A5 pages, Mar..Feb)")
 
 
 def create_a5_concentric_circles(filename="blank_a5_landscape.pdf",
@@ -716,7 +753,7 @@ def main():
         "--paper",
         choices=["a5-in-letter", "half-letter-in-letter",
                  "half-letter-in-half-letter", "letter-2up",
-                 "a5-fold-in-letter", "booklet"],
+                 "a5-fold-in-letter", "booklet", "booklet-proof"],
         default="a5-in-letter",
         help="Output layout. 'a5-in-letter' = letter landscape + A5 trim box. "
              "'half-letter-in-letter' = letter landscape + half-letter trim "
@@ -725,8 +762,10 @@ def main():
              "center CUT line -> two half-letter pages. 'a5-fold-in-letter' = "
              "two wheels on portrait letter with a center FOLD line (both "
              "upright); fold + trim sides for an A5-ish double-sided card. "
-             "'booklet' = full 12-month A5 flip-booklet across 14 letter "
-             "sheets (fold spine, single right trim; sleep=between, walk=on). "
+             "'booklet' = full 12-month (Mar..Feb) A5 saddle-stitch booklet on "
+             "7 DUPLEX (short-edge) letter sheets: trim right to A5 width, fold "
+             "each, nest one-in-another, staple the spine. 'booklet-proof' = "
+             "same imposition with big page numbers for a blank fold-test. "
              "Default: a5-in-letter")
     parser.add_argument(
         "--two-up", type=_parse_two_up, default=TWO_UP_LANDINGS,
@@ -746,9 +785,12 @@ def main():
         help="Output PDF filename. Default: sleep_wheel_<landing>_<paper>.pdf")
     args = parser.parse_args()
 
-    if args.paper == "booklet":
-        out = args.output or "sleep_wheel_booklet.pdf"
-        create_booklet(filename=out, radial_exp=args.radial_exp)
+    if args.paper in ("booklet", "booklet-proof"):
+        proof = args.paper == "booklet-proof"
+        default = ("sleep_wheel_booklet_proof.pdf" if proof
+                   else "sleep_wheel_booklet.pdf")
+        out = args.output or default
+        create_booklet(filename=out, radial_exp=args.radial_exp, proof=proof)
         return
 
     out = args.output or f"sleep_wheel_{args.landing}_{args.paper}.pdf"
