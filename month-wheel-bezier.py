@@ -53,6 +53,7 @@ Usage:
 
 import argparse
 import math
+import os
 
 from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import A5, letter, landscape
@@ -919,6 +920,23 @@ def _parse_two_up(value):
     return tuple(parts)
 
 
+# All PDFs land in this subfolder by default (created on demand). Pass --output
+# with an explicit directory (e.g. "sub/foo.pdf" or "/tmp/foo.pdf") to override.
+DEFAULT_OUTPUT_DIR = "output"
+
+
+def _resolve_output_path(filename, output_dir=DEFAULT_OUTPUT_DIR):
+    """Route a bare filename into the default output subfolder and ensure the
+    target directory exists. If `filename` already carries a directory part, it
+    is honored verbatim (only its parent is created)."""
+    head, _ = os.path.split(filename)
+    if not head:
+        filename = os.path.join(output_dir, filename)
+        head = output_dir
+    os.makedirs(head, exist_ok=True)
+    return filename
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="A5 month-wheel sleep/habit tracker.")
@@ -963,19 +981,22 @@ def main():
              "Default: sunday")
     parser.add_argument(
         "--output", default=None,
-        help="Output PDF filename. Default: sleep_wheel_<landing>_<paper>.pdf")
+        help="Output PDF filename. A bare name is written into the '%s/' "
+             "subfolder; include a directory to override. "
+             "Default: sleep_wheel_<landing>_<paper>.pdf" % DEFAULT_OUTPUT_DIR)
     args = parser.parse_args()
 
     if args.paper in ("booklet", "booklet-proof"):
         proof = args.paper == "booklet-proof"
         default = ("sleep_wheel_booklet_proof.pdf" if proof
                    else "sleep_wheel_booklet.pdf")
-        out = args.output or default
+        out = _resolve_output_path(args.output or default)
         create_booklet(filename=out, radial_exp=args.radial_exp, proof=proof,
                        march_start=args.start_weekday)
         return
 
-    out = args.output or f"sleep_wheel_{args.landing}_{args.paper}.pdf"
+    out = _resolve_output_path(
+        args.output or f"sleep_wheel_{args.landing}_{args.paper}.pdf")
     create_a5_concentric_circles(filename=out, landing=args.landing,
                                  paper=args.paper, radial_exp=args.radial_exp,
                                  two_up=args.two_up)
