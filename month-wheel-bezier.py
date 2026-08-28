@@ -75,6 +75,10 @@ TWO_UP_LANDINGS = ("between", "on")
 # Saturday). This keeps every letter unique.
 WEEKDAY_LETTERS = ["M", "T", "W", "R", "F", "S", "U"]   # 0=Mon .. 6=Sun
 
+# Short abbreviations (0=Mon..6=Sun) used to tag booklet PDF filenames with the
+# starting weekday of MARCH 1, e.g. "...-start-sun.pdf" for a Sunday year.
+WEEKDAY_ABBR = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
+
 # Accepted spellings for --start-weekday (the weekday of MARCH 1). Full names,
 # common abbreviations, and the single letters above all map to a 0..6 index.
 _WEEKDAY_PARSE = {
@@ -951,7 +955,7 @@ def main():
         choices=["a5-in-letter", "half-letter-in-letter",
                  "half-letter-in-half-letter", "letter-2up",
                  "a5-fold-in-letter", "booklet", "booklet-proof"],
-        default="a5-in-letter",
+        default="booklet",
         help="Output layout. 'a5-in-letter' = letter landscape + A5 trim box. "
              "'half-letter-in-letter' = letter landscape + half-letter trim "
              "box. 'half-letter-in-half-letter' = half-letter sheet, "
@@ -959,7 +963,7 @@ def main():
              "center CUT line -> two half-letter pages. 'a5-fold-in-letter' = "
              "two wheels on portrait letter with a center FOLD line (both "
              "upright); fold + trim sides for an A5-ish double-sided card. "
-             "Default: a5-in-letter")
+             "Default: booklet")
     parser.add_argument(
         "--two-up", type=_parse_two_up, default=TWO_UP_LANDINGS,
         dest="two_up", metavar="TOP,BOTTOM",
@@ -988,8 +992,9 @@ def main():
 
     if args.paper in ("booklet", "booklet-proof"):
         proof = args.paper == "booklet-proof"
-        default = ("sleep_wheel_booklet_proof.pdf" if proof
-                   else "sleep_wheel_booklet.pdf")
+        start = WEEKDAY_ABBR[args.start_weekday]     # e.g. "sun" for Mar 1 = Sun
+        stem = "sleep_wheel_booklet_proof" if proof else "sleep_wheel_booklet"
+        default = f"{stem}-start-{start}.pdf"
         out = _resolve_output_path(args.output or default)
         create_booklet(filename=out, radial_exp=args.radial_exp, proof=proof,
                        march_start=args.start_weekday)
