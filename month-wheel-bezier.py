@@ -503,6 +503,108 @@ def draw_wheel(c, cx, cy, landing="on", radial_exp=5.0):
     draw_day_numbers(c, cx, cy, neptune_d=2.0, pluto_d=2.5, n=32)
 
 
+# ---- 12-month booklet ------------------------------------------------------
+# Physical build: each US Letter PORTRAIT sheet is printed single-sided with
+# TWO upright A5 wheels (top + bottom), folded once at the horizontal middle
+# (the SPINE, same as a5-fold-in-letter) and trimmed on the RIGHT only. Folding
+# turns each sheet into ONE double-sided A5 leaf:
+#     bottom wheel -> FRONT (odd page)   top wheel -> BACK (even page)
+# Stack all 14 folded leaves, bind at the top fold = a top-flip A5 booklet.
+# Facing spreads (open book) pair the BACK of leaf n with the FRONT of leaf
+# n+1, i.e. pages (2,3), (4,5)... = each month's sleep(top) + walk(bottom).
+# Both wheels stay upright: the fold + the flip-up cancel out to read correctly.
+MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
+          "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+
+
+def _booklet_pages():
+    """1-indexed page schedule (index 0 unused, indices 1..28 are the pages).
+
+    Each entry is None (blank page) or a dict {month, kind, landing}. Layout:
+      p1 blank; p2..p25 = Jan..Dec each as (sleep=between, walk=on);
+      p26..p28 blank.
+    """
+    pages = [None] * 29                      # indices 1..28 (0 unused)
+    p = 2
+    for m in MONTHS:
+        pages[p] = {"month": m, "kind": "sleep", "landing": "between"}
+        pages[p + 1] = {"month": m, "kind": "walk", "landing": "on"}
+        p += 2
+    # p == 26 now; pages[1], pages[26], pages[27], pages[28] stay None (blank)
+    return pages
+
+
+def _page_tag(pno, spec):
+    "Short collation label for the waste strip (e.g. 'p3 Jan walk')."
+    if spec is None:
+        return f"p{pno} blank"
+    return f"p{pno} {spec['month']} {spec['kind']}"
+
+
+def _draw_waste_mark(c, x_trim, sheet_w, y, text):
+    """Tiny collation label in the RIGHT waste strip (cut away on trim).
+
+    Lives entirely to the RIGHT of the A5 trim line, so it never appears on the
+    finished page -- it only helps you collate the 14 sheets before trimming.
+    Rotated 90 to read up the narrow strip. Set marks=False to omit.
+    """
+    c.saveState()
+    c.setFillColor(Color(0.6, 0.6, 0.6))
+    x = (x_trim + sheet_w) / 2.0
+    c.translate(x, y)
+    c.rotate(90)
+    c.setFont("Helvetica", 6)
+    c.drawCentredString(0, -2, text)
+    c.restoreState()
+
+
+def create_booklet(filename="sleep_wheel_booklet.pdf", radial_exp=5.0,
+                   marks=True):
+    """12-month A5 flip-booklet imposed on 14 US Letter portrait sheets.
+
+    Each sheet = one folded A5 leaf (fold spine at the horizontal middle, a
+    single RIGHT trim to A5 width 8.27in). Print single-sided at 100%, trim
+    every sheet's right edge, fold each on the FOLD line, stack in page order,
+    bind at the fold. 28 pages total (see _booklet_pages).
+    """
+    page_size = letter                        # portrait 8.5 x 11
+    width, height = page_size
+    a5_w = landscape(A5)[0]                    # 8.27 finished width
+    cx_wheel = a5_w / 2.0                      # center wheels in the A5 width
+    y_top, y_bottom = 3.0 * height / 4.0, height / 4.0
+
+    pages = _booklet_pages()
+    c = canvas.Canvas(filename, pagesize=page_size)
+
+    n_sheets = 14
+    for k in range(1, n_sheets + 1):
+        front_pno, back_pno = 2 * k - 1, 2 * k     # odd=front, even=back
+        bottom_spec, top_spec = pages[front_pno], pages[back_pno]
+
+        # top wheel = BACK/even page ; bottom wheel = FRONT/odd page
+        if top_spec is not None:
+            draw_wheel(c, cx_wheel, y_top, top_spec["landing"], radial_exp)
+        if bottom_spec is not None:
+            draw_wheel(c, cx_wheel, y_bottom, bottom_spec["landing"],
+                       radial_exp)
+
+        # Spine (fold) + single right-side trim, identical on every sheet.
+        draw_fold_line(c, 0.0, a5_w, height / 2.0)
+        draw_side_crop_marks(c, a5_w, 0.0, height)
+
+        if marks:
+            _draw_waste_mark(c, a5_w, width, y_top,
+                             _page_tag(back_pno, top_spec))
+            _draw_waste_mark(c, a5_w, width, y_bottom,
+                             _page_tag(front_pno, bottom_spec))
+
+        c.showPage()
+
+    c.save()
+    print(f"Created 12-month booklet PDF: {filename}  "
+          f"({n_sheets} letter sheets -> 28 A5 pages)")
+
+
 def create_a5_concentric_circles(filename="blank_a5_landscape.pdf",
                                  landing="on", paper="a5-in-letter",
                                  radial_exp=5.0, two_up=TWO_UP_LANDINGS):
@@ -614,7 +716,7 @@ def main():
         "--paper",
         choices=["a5-in-letter", "half-letter-in-letter",
                  "half-letter-in-half-letter", "letter-2up",
-                 "a5-fold-in-letter"],
+                 "a5-fold-in-letter", "booklet"],
         default="a5-in-letter",
         help="Output layout. 'a5-in-letter' = letter landscape + A5 trim box. "
              "'half-letter-in-letter' = letter landscape + half-letter trim "
@@ -623,6 +725,8 @@ def main():
              "center CUT line -> two half-letter pages. 'a5-fold-in-letter' = "
              "two wheels on portrait letter with a center FOLD line (both "
              "upright); fold + trim sides for an A5-ish double-sided card. "
+             "'booklet' = full 12-month A5 flip-booklet across 14 letter "
+             "sheets (fold spine, single right trim; sleep=between, walk=on). "
              "Default: a5-in-letter")
     parser.add_argument(
         "--two-up", type=_parse_two_up, default=TWO_UP_LANDINGS,
@@ -641,6 +745,11 @@ def main():
         "--output", default=None,
         help="Output PDF filename. Default: sleep_wheel_<landing>_<paper>.pdf")
     args = parser.parse_args()
+
+    if args.paper == "booklet":
+        out = args.output or "sleep_wheel_booklet.pdf"
+        create_booklet(filename=out, radial_exp=args.radial_exp)
+        return
 
     out = args.output or f"sleep_wheel_{args.landing}_{args.paper}.pdf"
     create_a5_concentric_circles(filename=out, landing=args.landing,
