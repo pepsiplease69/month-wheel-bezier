@@ -13,6 +13,19 @@ Connector styles:
   * partial radial  -> near-vertical days swing to a radial landing
   * pigtail loops   -> selected 'between' days curl at the landing (LOOP_CURLS)
 
+Calendar labeling (booklet only; single/2-up wheels stay blank):
+  * hub label       -> the month name + (sleep)/(walk) in the center hub.
+                       'sleep' is the 'between' wheel, 'walk' is the 'on' wheel.
+  * weekday letters -> the ring just inside the day numbers, using
+                       M T W R F S U (Mon..Sun; note R=Thu, U=Sun).
+  * blocked days    -> for months shorter than 32 days, the surplus day-number
+                       cells (e.g. 32 for a 31-day month, 31-32 for a 30-day
+                       month, 29-32 for Feb) are cross-hatched and lose their
+                       number + weekday letter. This anchors the month's end.
+  * --start-weekday -> the weekday of MARCH 1 (default sunday). Every later
+                       month's start rolls forward from it (31 days of March ->
+                       April starts Wednesday, etc.). Leap Feb is ignored.
+
 Paper (--paper):
   * a5-in-letter          -> US Letter LANDSCAPE with an A5 (8.27x5.83) TRIM
                              box + crop marks. Print at 100%, cut to A5.
@@ -33,9 +46,9 @@ Paper (--paper):
                              notebook, band the spine. Landings via --two-up.
 
 Usage:
-  python month-wheel-bezier_38.py --landing on --paper a5-in-letter
-  python month-wheel-bezier_38.py --paper letter-2up --two-up between,on
-  python month-wheel-bezier_38.py --paper a5-fold-in-letter --two-up between,on
+  python month-wheel-bezier_45.py --landing on --paper a5-in-letter
+  python month-wheel-bezier_45.py --paper letter-2up --two-up between,on
+  python month-wheel-bezier_45.py --paper booklet --start-weekday sunday
 """
 
 import argparse
@@ -55,6 +68,23 @@ HALF_LETTER = (5.5 * inch, 8.5 * inch)
 # Default 2-up / fold wheel landings, TOP first then BOTTOM. Overridable at the
 # command line with --two-up (e.g. "on,on", "between,between", "on,between").
 TWO_UP_LANDINGS = ("between", "on")
+
+# Weekday letters for the ring just inside the day numbers, indexed Mon..Sun.
+# Note the user's convention: R = Thursday (T is Tuesday), U = Sunday (S is
+# Saturday). This keeps every letter unique.
+WEEKDAY_LETTERS = ["M", "T", "W", "R", "F", "S", "U"]   # 0=Mon .. 6=Sun
+
+# Accepted spellings for --start-weekday (the weekday of MARCH 1). Full names,
+# common abbreviations, and the single letters above all map to a 0..6 index.
+_WEEKDAY_PARSE = {
+    "monday": 0, "mon": 0, "m": 0,
+    "tuesday": 1, "tue": 1, "tues": 1, "t": 1,
+    "wednesday": 2, "wed": 2, "w": 2,
+    "thursday": 3, "thu": 3, "thur": 3, "thurs": 3, "r": 3,
+    "friday": 4, "fri": 4, "f": 4,
+    "saturday": 5, "sat": 5, "s": 5,
+    "sunday": 6, "sun": 6, "u": 6,
+}
 
 
 def draw_dotted_ellipse(c, cx, cy, major_in=4.0, minor_in=3.5):
@@ -471,13 +501,19 @@ def draw_bezier_connectors(c, cx, cy, pluto_d=2.5, n=32, landing="on",
 
 
 def draw_day_numbers(c, cx, cy, neptune_d=2.0, pluto_d=2.5, n=32,
-                     font_name="Helvetica", font_size=9):
-    """Numbers 1..n in the Neptune-Pluto band, bottoms toward the sun."""
+                     font_name="Helvetica", font_size=9, month_len=None):
+    """Numbers 1..n in the Neptune-Pluto band, bottoms toward the sun.
+
+    If month_len is given, days past it (e.g. 32 for a 31-day month) are
+    skipped -- their cells get cross-hatched by draw_blocked_cell instead.
+    """
     r_neptune = (neptune_d / 2.0) * inch
     r_pluto = (pluto_d / 2.0) * inch
     r_text = (r_neptune + r_pluto) / 2.0
     step_deg = 360.0 / n
     for i in range(n):
+        if month_len is not None and (i + 1) > month_len:
+            continue
         theta_deg = (i + 0.5) * step_deg
         c.saveState()
         c.translate(cx, cy)
@@ -487,8 +523,110 @@ def draw_day_numbers(c, cx, cy, neptune_d=2.0, pluto_d=2.5, n=32,
         c.restoreState()
 
 
-def draw_wheel(c, cx, cy, landing="on", radial_exp=5.0):
-    """Draw ONE complete month-wheel centered at (cx, cy)."""
+def _annular_sector_path(c, cx, cy, r_in, r_out, theta0, theta1, steps=12):
+    """A closed path for the wedge between r_in..r_out over theta0..theta1.
+
+    Angles use the wheel convention: point = (cx + r*sin(t), cy + r*cos(t)),
+    i.e. t measured clockwise from 12 o'clock. Used as a clip for hatching.
+    """
+    p = c.beginPath()
+    for k in range(steps + 1):                    # outer arc theta0 -> theta1
+        t = theta0 + (theta1 - theta0) * k / steps
+        x, y = cx + r_out * math.sin(t), cy + r_out * math.cos(t)
+        (p.moveTo if k == 0 else p.lineTo)(x, y)
+    for k in range(steps + 1):                    # inner arc theta1 -> theta0
+        t = theta1 - (theta1 - theta0) * k / steps
+        p.lineTo(cx + r_in * math.sin(t), cy + r_in * math.cos(t))
+    p.close()
+    return p
+
+
+def draw_blocked_cell(c, cx, cy, i, n, r_in, r_out,
+                      spacing=3.2, line_width=0.5):
+    """Cross-hatch the day-number cell for sector i (a blocked, non-existent
+    day). We clip to the wedge and rule 45-degree parallel lines across it."""
+    step = 2.0 * math.pi / n
+    theta0, theta1 = i * step, (i + 1) * step
+    c.saveState()
+    c.clipPath(_annular_sector_path(c, cx, cy, r_in, r_out, theta0, theta1),
+               stroke=0, fill=0)
+
+    # Bounding box of the wedge (sample both arcs) for the ruling extent.
+    xs, ys = [], []
+    for r in (r_in, r_out):
+        for k in range(13):
+            t = theta0 + (theta1 - theta0) * k / 12.0
+            xs.append(cx + r * math.sin(t))
+            ys.append(cy + r * math.cos(t))
+    xmin, xmax, ymin, ymax = min(xs), max(xs), min(ys), max(ys)
+
+    c.setStrokeColor(Color(0.35, 0.35, 0.35))
+    c.setLineWidth(line_width)
+    c.setDash()
+    step_b = spacing * math.sqrt(2.0)             # perp spacing for 45deg lines
+    b = (ymin - xmax)
+    while b <= (ymax - xmin):                      # lines y = x + b
+        c.line(xmin - 2, xmin - 2 + b, xmax + 2, xmax + 2 + b)
+        b += step_b
+    c.restoreState()
+
+
+def draw_weekday_letters(c, cx, cy, start_weekday, month_len=None,
+                         uranus_d=1.5, neptune_d=2.0, n=32,
+                         font_name="Helvetica", font_size=8):
+    """Weekday letters (M T W R F S U) in the ring just inside the numbers.
+
+    start_weekday is the weekday index of day 1 (0=Mon..6=Sun). None -> the
+    wheel stays blank (single-page / 2-up modes). Blocked days are skipped.
+    """
+    if start_weekday is None:
+        return
+    r_uranus = (uranus_d / 2.0) * inch
+    r_neptune = (neptune_d / 2.0) * inch
+    r_text = (r_uranus + r_neptune) / 2.0
+    step_deg = 360.0 / n
+    for i in range(n):
+        if month_len is not None and (i + 1) > month_len:
+            continue
+        letter = WEEKDAY_LETTERS[(start_weekday + i) % 7]
+        theta_deg = (i + 0.5) * step_deg
+        c.saveState()
+        c.translate(cx, cy)
+        c.rotate(-theta_deg)
+        c.setFont(font_name, font_size)
+        c.drawCentredString(0, r_text - 0.35 * font_size, letter)
+        c.restoreState()
+
+
+def draw_hub_label(c, cx, cy, month_name, kind=None):
+    """Two upright lines in the center hub: month name over '(kind)'.
+
+    month_name None/empty -> nothing drawn (blank wheel).
+    """
+    if not month_name:
+        return
+    c.saveState()
+    c.setFillColor(Color(0.1, 0.1, 0.1))
+    c.setFont("Helvetica-Bold", 12)
+    c.drawCentredString(cx, cy + 2.0, month_name)
+    if kind:
+        c.setFont("Helvetica", 9.5)
+        c.drawCentredString(cx, cy - 11.0, "(%s)" % kind)
+    c.restoreState()
+
+
+def draw_wheel(c, cx, cy, landing="on", radial_exp=5.0,
+               month_name=None, kind=None, start_weekday=None, month_len=None):
+    """Draw ONE complete month-wheel centered at (cx, cy).
+
+    Calendar extras (all optional; omitted -> a blank wheel):
+      month_name    -> hub label, top line (e.g. "March")
+      kind          -> hub label, bottom line "(sleep)" / "(walk)"
+      start_weekday -> weekday index (0=Mon..6=Sun) of day 1, drives the
+                       weekday-letter ring
+      month_len     -> real day count; surplus day cells are hatched out and
+                       lose their number + weekday letter
+    """
     for d in [2.5, 2.0, 1.5, 1.0]:
         c.circle(cx, cy, (d / 2.0) * inch, stroke=1, fill=0)
 
@@ -500,7 +638,19 @@ def draw_wheel(c, cx, cy, landing="on", radial_exp=5.0):
                            rect_w_in=1.25, rect_h_in=0.25, gap_in=0.25)
     draw_belt_rectangles(c, cx, cy, major_in=4.0, minor_in=3.5,
                          rect_w_in=1.25, rect_h_in=0.25, gap_in=0.25, n=32)
-    draw_day_numbers(c, cx, cy, neptune_d=2.0, pluto_d=2.5, n=32)
+    draw_day_numbers(c, cx, cy, neptune_d=2.0, pluto_d=2.5, n=32,
+                     month_len=month_len)
+    draw_weekday_letters(c, cx, cy, start_weekday, month_len=month_len,
+                         uranus_d=1.5, neptune_d=2.0, n=32)
+
+    # Hatch out any day-number cells beyond the real month length.
+    if month_len is not None:
+        r_in = (2.0 / 2.0) * inch           # Neptune orbit (inner edge of band)
+        r_out = (2.5 / 2.0) * inch          # Pluto orbit  (outer edge of band)
+        for i in range(month_len, 32):
+            draw_blocked_cell(c, cx, cy, i, 32, r_in, r_out)
+
+    draw_hub_label(c, cx, cy, month_name, kind)
 
 
 # ---- 12-month SADDLE-STITCH booklet ----------------------------------------
@@ -527,20 +677,54 @@ def draw_wheel(c, cx, cy, landing="on", radial_exp=5.0):
 MONTHS = ["Mar", "Apr", "May", "Jun", "Jul", "Aug",
           "Sep", "Oct", "Nov", "Dec", "Jan", "Feb"]
 
+# Full names for the hub label.
+MONTH_FULL = {
+    "Mar": "March", "Apr": "April", "May": "May", "Jun": "June",
+    "Jul": "July", "Aug": "August", "Sep": "September", "Oct": "October",
+    "Nov": "November", "Dec": "December", "Jan": "January", "Feb": "February",
+}
+
+# Day counts, NON-leap (Feb = 28). Surplus sectors past this get hatched out.
+MONTH_LENGTHS = {
+    "Mar": 31, "Apr": 30, "May": 31, "Jun": 30, "Jul": 31, "Aug": 31,
+    "Sep": 30, "Oct": 31, "Nov": 30, "Dec": 31, "Jan": 31, "Feb": 28,
+}
+
+
+def _month_start_weekdays(march_start):
+    """Map each month -> the weekday index (0=Mon..6=Sun) of its 1st.
+
+    March 1 is `march_start`; every later month rolls forward by that month's
+    (non-leap) length mod 7. No surprises: 31 days of March always lands April
+    on the weekday three past March's start, and so on around the year.
+    """
+    starts = {}
+    w = march_start
+    for m in MONTHS:
+        starts[m] = w
+        w = (w + MONTH_LENGTHS[m]) % 7
+    return starts
+
+
 BOOKLET_PAGES_TOTAL = 28
 
 
-def _booklet_pages():
+def _booklet_pages(march_start=6):
     """1-indexed page schedule (indices 1..28; index 0 unused).
 
     p1 blank; p2..p25 = Mar..Feb, each as sleep(between) then walk(on);
-    p26..p28 blank.
+    p26..p28 blank. march_start (0=Mon..6=Sun, default Sunday) seeds each
+    month's weekday phase. Every spec carries its full name, real day count,
+    and start weekday so the wheel can label + hatch itself.
     """
+    starts = _month_start_weekdays(march_start)
     pages = [None] * (BOOKLET_PAGES_TOTAL + 1)
     p = 2
     for m in MONTHS:
-        pages[p] = {"month": m, "kind": "sleep", "landing": "between"}
-        pages[p + 1] = {"month": m, "kind": "walk", "landing": "on"}
+        common = {"month": m, "name": MONTH_FULL[m],
+                  "start_weekday": starts[m], "month_len": MONTH_LENGTHS[m]}
+        pages[p] = {**common, "kind": "sleep", "landing": "between"}
+        pages[p + 1] = {**common, "kind": "walk", "landing": "on"}
         p += 2
     return pages                              # p1, p26, p27, p28 stay None
 
@@ -582,19 +766,20 @@ def _draw_booklet_furniture(c, a5_w, height):
 
 
 def create_booklet(filename="sleep_wheel_booklet.pdf", radial_exp=5.0,
-                   proof=False):
+                   proof=False, march_start=6):
     """12-month A5 saddle-stitch booklet on 7 US Letter sheets (duplex).
 
     PDF page order is front,back,front,back... (14 pages). Print DUPLEX,
     SHORT-EDGE flip, 100%. proof=True prints big page numbers so you can fold
     a blank dummy and confirm collation before committing the real wheels.
+    march_start (0=Mon..6=Sun) sets the weekday of MARCH 1.
     """
     width, height = letter                    # portrait 8.5 x 11
     a5_w = landscape(A5)[0]                    # 8.27 finished width
     cx = a5_w / 2.0
     y_bottom, y_top = height / 4.0, 3.0 * height / 4.0
 
-    pages = _booklet_pages()
+    pages = _booklet_pages(march_start)
     sheets = _impose_saddle()
     c = canvas.Canvas(filename, pagesize=letter)
 
@@ -606,11 +791,13 @@ def create_booklet(filename="sleep_wheel_booklet.pdf", radial_exp=5.0,
                 _draw_proof_slot(c, cx, y_top, pt, pages[pt])
                 _draw_proof_slot(c, cx, y_bottom, pb, pages[pb])
             else:
-                if pages[pt] is not None:
-                    draw_wheel(c, cx, y_top, pages[pt]["landing"], radial_exp)
-                if pages[pb] is not None:
-                    draw_wheel(c, cx, y_bottom, pages[pb]["landing"],
-                               radial_exp)
+                for pno, y in ((pt, y_top), (pb, y_bottom)):
+                    sp = pages[pno]
+                    if sp is not None:
+                        draw_wheel(c, cx, y, sp["landing"], radial_exp,
+                                   month_name=sp["name"], kind=sp["kind"],
+                                   start_weekday=sp["start_weekday"],
+                                   month_len=sp["month_len"])
             _draw_booklet_furniture(c, a5_w, height)
             c.showPage()
 
@@ -702,6 +889,20 @@ def create_a5_concentric_circles(filename="blank_a5_landscape.pdf",
           f"(landing={landing}, paper={paper})")
 
 
+def _parse_weekday(value):
+    """Parse --start-weekday into a 0..6 index (0=Mon..6=Sun).
+
+    Accepts full names, common abbreviations, or the single letters
+    m/t/w/r/f/s/u (matching the wheel's WEEKDAY_LETTERS).
+    """
+    key = value.strip().lower()
+    if key not in _WEEKDAY_PARSE:
+        raise argparse.ArgumentTypeError(
+            "must be a weekday (monday..sunday) or a letter m/t/w/r/f/s/u; "
+            "got: %r" % value)
+    return _WEEKDAY_PARSE[key]
+
+
 def _parse_two_up(value):
     """Parse a --two-up 'top,bottom' string into a (top, bottom) tuple.
 
@@ -755,6 +956,12 @@ def main():
              "tighter band around 12 & 6 o'clock, leaving the side S-curves "
              "untouched. 0 = pure horizontal (old look). Default: 5.0")
     parser.add_argument(
+        "--start-weekday", type=_parse_weekday, default="sunday",
+        dest="start_weekday", metavar="DAY",
+        help="Weekday of MARCH 1 (booklet only). Full name, abbreviation, or "
+             "letter m/t/w/r/f/s/u. Every later month rolls forward from it. "
+             "Default: sunday")
+    parser.add_argument(
         "--output", default=None,
         help="Output PDF filename. Default: sleep_wheel_<landing>_<paper>.pdf")
     args = parser.parse_args()
@@ -764,7 +971,8 @@ def main():
         default = ("sleep_wheel_booklet_proof.pdf" if proof
                    else "sleep_wheel_booklet.pdf")
         out = args.output or default
-        create_booklet(filename=out, radial_exp=args.radial_exp, proof=proof)
+        create_booklet(filename=out, radial_exp=args.radial_exp, proof=proof,
+                       march_start=args.start_weekday)
         return
 
     out = args.output or f"sleep_wheel_{args.landing}_{args.paper}.pdf"
